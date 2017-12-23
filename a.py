@@ -7,7 +7,7 @@ no_output =2
 vec_per_sec=10
 seq_length=30
 vec_pec_frame=33
-learning_rate=0.0001
+learning_rate=0.01
 
 class file(object):
     def Return_Num_1(array):
@@ -117,8 +117,9 @@ class RNN_model:
 
     def _build_net(self):
         with tf.variable_scope(self.name):            
-            layer1=100
-            layer2=no_output
+            layer1=300
+            layer2=50
+            layer_output=no_output
             FC1=50
 
             self.X=tf.placeholder(tf.float32,[None,seq_length,130])
@@ -127,10 +128,11 @@ class RNN_model:
             self.keep_prob=tf.placeholder(tf.float32)
             self.data_length=tf.placeholder(tf.int32)
 
-            layer1_cell=tf.contrib.rnn.BasicRNNCell(num_units=layer1,activation=tf.nn.relu)
-            layer2_cell=tf.contrib.rnn.BasicRNNCell(num_units=layer2,activation=tf.nn.relu)
+            layer1_cell=tf.contrib.rnn.BasicLSTMCell(num_units=layer1)
+            layer2_cell=tf.contrib.rnn.BasicLSTMCell(num_units=layer2)
+            layerOut_cell=tf.contrib.rnn.BasicLSTMCell(num_units=layer_output)
             
-            multi_cell=tf.contrib.rnn.MultiRNNCell([layer1_cell,layer2_cell])
+            multi_cell=tf.contrib.rnn.MultiRNNCell([layer1_cell,layer2_cell,layerOut_cell])
             
             outputs,_=tf.nn.dynamic_rnn(multi_cell,self.X,dtype=tf.float32)
             self.outputs=tf.nn.dropout(outputs,keep_prob=self.keep_prob)
@@ -143,7 +145,7 @@ class RNN_model:
         return self.sess.run(self.cost,feed_dict={self.X:x,self.Y:y,self.keep_prob:keep_prob})
       
     def predict(self,x_test,keep_prob=1.0):
-        return self.sess.run(tf.argmax(self.outputs,axis=1),feed_dict={self.X:x_test,self.keep_prob:keep_prob})
+        return self.sess.run(tf.argmax(self.outputs,axis=2),feed_dict={self.X:x_test,self.keep_prob:keep_prob})
   
     def output(self,x_test,keep_prob=1.0):
         return self.sess.run(self.outputs,feed_dict={self.X:x_test,self.keep_prob:keep_prob})

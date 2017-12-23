@@ -89,6 +89,11 @@ print(mfcc_train.shape)
 print(out_info_train.shape)
 print(tds_train.shape)
 print(len(mfcc_train))
+tst=np.reshape(tds_train,(-1,1))
+
+print(a.file.Return_Num_1(tst))
+
+"""
 for i in range(101):
     start=time.time()
     l,_=fc_model.train(mfcc_train,tds_train,len(mfcc_train))
@@ -100,8 +105,9 @@ for i in range(101):
 
     if(i%10==0):
         print(fc_model.predict(mfcc_train))
+        print(tds_train)
         
-    
+"""    
 print(fc_model.accuracy(mfcc_train,out_info_train))
 print(fc_model.accuracy(mfcc_test,out_info_test))
 print(fc_model.accuracy(TrainingData,out_info_label_scripts))
