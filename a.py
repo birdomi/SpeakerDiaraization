@@ -2,12 +2,19 @@ import numpy as np
 import tensorflow as tf
 import scipy.io.wavfile as wav
 import python_speech_features
+import winsound
 
 no_output =2
 vec_per_sec=10
 seq_length=30
 vec_pec_frame=33
-learning_rate=0.01
+learning_rate=1e-3
+
+beep_frequency=1500
+beep_duration=5000
+
+def beep():
+    winsound.Beep(beep_frequency,beep_duration)
 
 class file(object):
     def Return_Num_1(array):
@@ -117,10 +124,21 @@ class RNN_model:
 
     def _build_net(self):
         with tf.variable_scope(self.name):            
-            layer1=300
-            layer2=50
+            layer1=1000
+            layer2=800
+            layer3=700
+            layer4=600
+            layer5=400
+            layer6=130           
             layer_output=no_output
-            FC1=50
+
+            self.layer_input=13*vec_per_sec
+            self.layer1=1000
+            self.layer2=800
+            self.layer3=100
+            self.layer4=20            
+            self.layer_output=no_output
+            
 
             self.X=tf.placeholder(tf.float32,[None,seq_length,130])
             self.Y=tf.placeholder(tf.int32,[None,seq_length,no_output])
@@ -130,12 +148,45 @@ class RNN_model:
 
             layer1_cell=tf.contrib.rnn.BasicLSTMCell(num_units=layer1)
             layer2_cell=tf.contrib.rnn.BasicLSTMCell(num_units=layer2)
+            layer3_cell=tf.contrib.rnn.BasicLSTMCell(num_units=layer3)
+            layer4_cell=tf.contrib.rnn.BasicLSTMCell(num_units=layer4)
+            layer5_cell=tf.contrib.rnn.BasicLSTMCell(num_units=layer5)
+            layer6_cell=tf.contrib.rnn.BasicLSTMCell(num_units=layer6)            
             layerOut_cell=tf.contrib.rnn.BasicLSTMCell(num_units=layer_output)
             
-            multi_cell=tf.contrib.rnn.MultiRNNCell([layer1_cell,layer2_cell,layerOut_cell])
+            multi_cell=tf.contrib.rnn.MultiRNNCell([layer1_cell,
+                                                    layer2_cell,
+                                                    layer3_cell,
+                                                    layer4_cell,
+                                                    layer5_cell,
+                                                    layer6_cell])
             
-            outputs,_=tf.nn.dynamic_rnn(multi_cell,self.X,dtype=tf.float32)
-            self.outputs=tf.nn.dropout(outputs,keep_prob=self.keep_prob)
+            rnn_outputs,_=tf.nn.dynamic_rnn(multi_cell,self.X,dtype=tf.float32)
+
+            fc_inputs=tf.reshape(rnn_outputs,(-1,130))
+           
+            W1=tf.get_variable('W1',[self.layer_input,self.layer1],initializer=tf.contrib.layers.xavier_initializer())
+            b1=tf.Variable(tf.random_normal([self.layer1]))
+            L1=tf.nn.relu(tf.matmul(fc_inputs,W1)+b1)
+
+            W2=tf.get_variable('W2',[self.layer1,self.layer2],initializer=tf.contrib.layers.xavier_initializer())
+            b2=tf.Variable(tf.random_normal([self.layer2]))
+            L2=tf.nn.relu(tf.matmul(L1,W2)+b2)
+
+            W3=tf.get_variable('W3',[self.layer2,self.layer3],initializer=tf.contrib.layers.xavier_initializer())
+            b3=tf.Variable(tf.random_normal([self.layer3]))
+            L3=tf.nn.relu(tf.matmul(L2,W3)+b3)
+
+            W4=tf.get_variable('W4',[self.layer3,self.layer4],initializer=tf.contrib.layers.xavier_initializer())
+            b4=tf.Variable(tf.random_normal([self.layer4]))
+            L4=tf.nn.relu(tf.matmul(L3,W4)+b4)
+
+            W5=tf.get_variable('W5',[self.layer4,self.layer_output],initializer=tf.contrib.layers.xavier_initializer())
+            b5=tf.Variable(tf.random_normal([self.layer_output]))
+            fc_outputs=(tf.matmul(L4,W5)+b5)
+
+            self.outputs=tf.reshape(fc_outputs,(-1,seq_length,no_output))           
+            
             
         self.weights=tf.ones([self.data_length,seq_length])
         self.cost=tf.reduce_mean(tf.contrib.seq2seq.sequence_loss(logits=self.outputs,targets=self.Y_transcripts,weights=self.weights))
@@ -154,10 +205,29 @@ class RNN_model:
         return self.sess.run([self.cost,self.optimizer],feed_dict={self.X:x_data,self.Y_transcripts:y_data,self.data_length:data_length,self.keep_prob:keep_prob})
 
     def accuracy(self,x_data,y_data):
-        x_prediction=tf.reshape(self.predict(x_data),(-1,1))
-        y_prediction=tf.reshape(y_data,(-1,1))
-        correct=tf.equal(x_prediction,tf.cast(y_prediction,tf.int64))
-        return self.sess.run(tf.reduce_mean(tf.cast(correct,tf.float32)))
+        x_prediction=np.reshape(self.predict(x_data),[-1])
+        y_prediction=np.reshape(y_data,[-1])
+        print(x_prediction)
+        print(y_prediction)
+
+        check_for_changePoint=0
+        check_for_falseAlarm=0
+        total_changePoint=0
+        total_non_changePoint=0
+
+        for i in range(self.sess.run(tf.size(y_prediction))):            
+            if(y_prediction[i]==1):
+                total_changePoint=total_changePoint+1
+                if(x_prediction[i]==1):
+                    check_for_changePoint=check_for_changePoint+1
+            else:
+                total_non_changePoint=total_non_changePoint+1
+                if(x_prediction[i]==0):
+                    check_for_falseAlarm=check_for_falseAlarm+1
+        accuracy_changePoint=(float)(check_for_changePoint/total_changePoint)
+        accuracy_non_changePoint=(float)(check_for_falseAlarm/total_non_changePoint)
+                
+        return accuracy_changePoint,accuracy_non_changePoint
 
 class FC_model:    
     def __init__(self, sess, name):
@@ -225,19 +295,19 @@ class FC_model:
 
             W10=tf.get_variable('W10',[self.layer9,self.layer10],initializer=tf.contrib.layers.xavier_initializer())
             b10=tf.Variable(tf.random_normal([self.layer10]))
-            L10=(tf.matmul(L9,W10)+b10)
+            L10=tf.nn.relu(tf.matmul(L9,W10)+b10)
 
             W11=tf.get_variable('W11',[self.layer10,self.layer11],initializer=tf.contrib.layers.xavier_initializer())
             b11=tf.Variable(tf.random_normal([self.layer11]))
-            L11=(tf.matmul(L10,W11)+b11)
+            L11=tf.nn.relu(tf.matmul(L10,W11)+b11)
 
             W12=tf.get_variable('W12',[self.layer11,self.layer12],initializer=tf.contrib.layers.xavier_initializer())
             b12=tf.Variable(tf.random_normal([self.layer12]))
-            L12=(tf.matmul(L11,W12)+b12)
+            L12=tf.nn.relu(tf.matmul(L11,W12)+b12)
 
             W13=tf.get_variable('W13',[self.layer12,self.layer13],initializer=tf.contrib.layers.xavier_initializer())
             b13=tf.Variable(tf.random_normal([self.layer13]))
-            L13=(tf.matmul(L12,W13)+b13)
+            L13=tf.nn.relu(tf.matmul(L12,W13)+b13)
 
             W14=tf.get_variable('W14',[self.layer13,self.layer_output],initializer=tf.contrib.layers.xavier_initializer())
             b14=tf.Variable(tf.random_normal([self.layer_output]))
@@ -258,12 +328,29 @@ class FC_model:
 
     def train(self,x_data,y_data,keep_prob=0.7):
         return self.sess.run([self.cost,self.optimizer],feed_dict={self.X:x_data,self.Y:y_data,self.keep_prob:keep_prob})
-
     def accuracy(self,x_data,y_data):
-        correct_prediction=tf.equal(tf.argmax(self.sess.run(self.hypothesis,feed_dict={self.X:x_data}),1),tf.argmax(y_data,1))
-        return self.sess.run(tf.reduce_mean(tf.cast(correct_prediction,tf.float32)))
+        x_prediction=np.reshape(self.predict(x_data),[-1])
+        y_prediction=np.reshape(y_data,[-1])
+        print(y_prediction)
+
+        check_for_changePoint=0
+        check_for_falseAlarm=0
+        total_changePoint=0
+        total_non_changePoint=0
+
+        for i in range(self.sess.run(tf.size(y_prediction))):            
+            if(y_prediction[i]==1):
+                total_changePoint=total_changePoint+1
+                if(x_prediction[i]==1):
+                    check_for_changePoint=check_for_changePoint+1
+            else:
+                total_non_changePoint=total_non_changePoint+1
+                if(x_prediction[i]==0):
+                    check_for_falseAlarm=check_for_falseAlarm+1
+        accuracy_changePoint=(float)(check_for_changePoint/total_changePoint)
+        accuracy_non_changePoint=(float)(check_for_falseAlarm/total_non_changePoint)
+                
+        return accuracy_changePoint,accuracy_non_changePoint
     pass
-
-
 
 
