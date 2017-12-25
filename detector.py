@@ -6,7 +6,6 @@ import time
 
 
 
-
 Data=a.file.Extract_Mfcc_OneFile('Bdb001.interaction.wav')
 print(Data)
 length_Data=(int)(len(Data)/10)
@@ -27,7 +26,7 @@ label_scripts=np.reshape(label_scripts,(-1,1))
 out_info_fc=tf.Session().run(tf.one_hot(label_scripts,a.no_output))
 out_info_fc=np.reshape(out_info_fc,(-1,a.no_output))
 
-seq_length=30
+seq_length=a.seq_length
 data_length=len(TrainingData)-seq_length
 
 dataX=np.ndarray((data_length,30,130))
@@ -43,7 +42,7 @@ dataY=np.reshape(dataY,(-1,seq_length))
 print(dataY)
 print(dataY.shape)
 print("data ready")
-a.beep()
+#a.beep()
 
 
 test_rate=0.7
@@ -71,26 +70,29 @@ mfcc_train=dataX[0:(int)(len(dataX)*test_rate),:,:]
 out_info_train=out_info_label_scripts[0:(int)(len(out_info_label_scripts)*test_rate),:]
 tds_train=dataY[0:(int)(len(dataY)*test_rate),:]
 
-test_batch_rate=0.005
-num_batches=(int)(test_rate/test_batch_rate)-1
+batch_size=100
+total_data_length=len(dataX)
+num_batch=(int)(total_data_length/batch_size)
 
 mfcc_train_array=[]
 out_info_train_array=[]
 tds_train_array=[]
 
-batch_size=(int)(test_batch_rate*len(mfcc_train))
-for i in range(num_batches):
-    mfcc_train_array.append(mfcc_train[i*batch_size:(i+1)*batch_size])
-    out_info_train_array.append(out_info_train[i*batch_size:(i+1)*batch_size])
-    tds_train_array.append(tds_train[i*batch_size:(i+1)*batch_size])
+
+for i in range(num_batch):
+    mfcc_train_array.append(dataX[i*batch_size:(i+1)*batch_size])
+    out_info_train_array.append(out_info_label_scripts[i*batch_size:(i+1)*batch_size])
+    tds_train_array.append(dataY[i*batch_size:(i+1)*batch_size])
     print(mfcc_train_array[i].shape)
+
+print(num_batch)
 
 mfcc_test=dataX[(int)(len(dataX)*test_rate):len(dataX)-1,:,:]
 out_info_test=out_info_label_scripts[(int)(len(out_info_label_scripts)*test_rate):len(out_info_label_scripts)-1,:]
 tds_test=dataY[(int)(len(dataY)*test_rate):len(dataY)-1,:]
 
-print(mfcc_train.shape)
-print(out_info_train.shape)
+print(dataX.shape)
+print(out_info_label_scripts.shape)
 ###
 sess=tf.Session()
 rnn_model=a.RNN_model(sess,'rnn')
