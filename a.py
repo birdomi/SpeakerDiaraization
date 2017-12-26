@@ -5,18 +5,9 @@ import python_speech_features
 import winsound
 
 no_output =2
-vec_per_sec=10
-seq_length=30
-import numpy as np
-import tensorflow as tf
-import scipy.io.wavfile as wav
-import python_speech_features
-import winsound
-
-no_output =2
 vec_per_sec=13
 vec=13
-seq_length=30
+seq_length=1*10
 vec_pec_frame=33
 learning_rate=1e-3
 
@@ -134,28 +125,28 @@ class RNN_model:
 
     def _build_net(self):
         with tf.variable_scope(self.name):            
-            layer1=100
-            layer2=90
-            layer3=70
-            layer4=60
+            layer1=1000
+            layer2=1000
+            layer3=200
+            layer4=100
             layer5=400
-            layer6=60        
+            layer6=20      
             layer_output=no_output
 
             self.layer_input=layer6
             self.layer1=1000
             self.layer2=800
             self.layer3=100
-            self.layer4=20            
+            self.layer4=40            
             self.layer_output=no_output
-            
+            label_length=(int)(seq_length/10)
 
-            self.X=tf.placeholder(tf.float32,[None,seq_length,130])
-            self.Y=tf.placeholder(tf.int32,[None,seq_length,no_output])
-            self.Y_transcripts=tf.placeholder(tf.int32,[None,seq_length])
+            self.X=tf.placeholder(tf.float32,[None,seq_length,vec])
+            self.Y=tf.placeholder(tf.int32,[None,label_length,no_output])
+            self.Y_transcripts=tf.placeholder(tf.int32,[None,label_length])
             self.keep_prob=tf.placeholder(tf.float32)
             self.data_length=tf.placeholder(tf.int32)
-
+            
             layer1_cell=tf.contrib.rnn.BasicLSTMCell(num_units=layer1)
             layer2_cell=tf.contrib.rnn.BasicLSTMCell(num_units=layer2)
             layer3_cell=tf.contrib.rnn.BasicLSTMCell(num_units=layer3)
@@ -163,42 +154,21 @@ class RNN_model:
             layer5_cell=tf.contrib.rnn.BasicLSTMCell(num_units=layer5)
             layer6_cell=tf.contrib.rnn.BasicLSTMCell(num_units=layer6)            
                         
-            multi_cell=tf.contrib.rnn.MultiRNNCell([layer1_cell,layer2_cell,layer3_cell,layer6_cell])
+            multi_cell=tf.contrib.rnn.MultiRNNCell([layer4_cell,layer6_cell])
             
             rnn_outputs,_=tf.nn.dynamic_rnn(multi_cell,self.X,dtype=tf.float32)
             rnn_outputs=tf.nn.dropout(rnn_outputs,keep_prob=self.keep_prob)
 
-            fc_inputs=tf.reshape(rnn_outputs,(-1,layer6))
-            """
-            W1=tf.get_variable('W1',[self.layer_input,self.layer1],initializer=tf.contrib.layers.xavier_initializer())
-            b1=tf.Variable(tf.random_normal([self.layer1]))
-            L1=tf.nn.relu(tf.matmul(fc_inputs,W1)+b1)
-            L1=tf.nn.dropout(L1,keep_prob=self.keep_prob)
+            fc_inputs=rnn_outputs[:,-1]
+           
+            W=tf.get_variable('W5',[self.layer_input,self.layer_output],initializer=tf.contrib.layers.xavier_initializer())
+            b=tf.Variable(tf.random_normal([self.layer_output]))
+            fc_outputs=(tf.matmul(fc_inputs,W)+b)
 
-            W2=tf.get_variable('W2',[self.layer1,self.layer2],initializer=tf.contrib.layers.xavier_initializer())
-            b2=tf.Variable(tf.random_normal([self.layer2]))
-            L2=tf.nn.relu(tf.matmul(L1,W2)+b2)
-            L2=tf.nn.dropout(L2,keep_prob=self.keep_prob)
-
-            W3=tf.get_variable('W3',[self.layer2,self.layer3],initializer=tf.contrib.layers.xavier_initializer())
-            b3=tf.Variable(tf.random_normal([self.layer3]))
-            L3=tf.nn.relu(tf.matmul(L2,W3)+b3)
-            L3=tf.nn.dropout(L3,keep_prob=self.keep_prob)
-
-            W4=tf.get_variable('W4',[self.layer3,self.layer4],initializer=tf.contrib.layers.xavier_initializer())
-            b4=tf.Variable(tf.random_normal([self.layer4]))
-            L4=tf.nn.relu(tf.matmul(L3,W4)+b4)
-            L4=tf.nn.dropout(L4,keep_prob=self.keep_prob)
-            """
-            W5=tf.get_variable('W5',[self.layer_input,self.layer_output],initializer=tf.contrib.layers.xavier_initializer())
-            b5=tf.Variable(tf.random_normal([self.layer_output]))
-            fc_outputs=(tf.matmul(fc_inputs,W5)+b5)
-            fc_outputs=tf.nn.dropout(fc_outputs,keep_prob=self.keep_prob)
-
-            self.outputs=tf.reshape(fc_outputs,(-1,seq_length,no_output))           
+            self.outputs=tf.reshape(fc_outputs,(-1,label_length,no_output))           
             
             
-        self.weights=tf.ones([self.data_length,seq_length])
+        self.weights=tf.ones([self.data_length,label_length])
         
         self.cost=tf.reduce_mean(tf.contrib.seq2seq.sequence_loss(logits=self.outputs,targets=self.Y_transcripts,weights=self.weights))
         self.optimizer=tf.train.AdamOptimizer(learning_rate=learning_rate).minimize(self.cost)
@@ -363,3 +333,5 @@ class FC_model:
                 
         return accuracy_changePoint,accuracy_non_changePoint
     pass
+
+
