@@ -9,60 +9,36 @@ import time
 Data=a.file.Extract_Mfcc_OneFile('Bdb001.interaction.wav')
 print(Data)
 length_Data=(int)(len(Data)/10)
-TrainingData=np.ndarray((length_Data,130))
+TrainingData=np.ndarray((length_Data,a.vec*10))
 
 for i in range(0,length_Data):
     temp=Data[i*10:i*10+10]
     temp=np.reshape(temp,(1,-1))
-    print(i)
     TrainingData[i]=temp
 
-print(TrainingData.shape);
-
-
 label_scripts=np.loadtxt('Label.txt',dtype=int)
-print(label_scripts)
-print(label_scripts.shape)
 label_scripts=np.reshape(label_scripts,(-1,1))
 out_info_fc=tf.Session().run(tf.one_hot(label_scripts,a.no_output))
 out_info_fc=np.reshape(out_info_fc,(-1,a.no_output))
 
 seq_length=a.seq_length
-data_length=len(TrainingData)-seq_length
+label_length=(int)(seq_length/10)
+data_length=len(TrainingData)-label_length
+print(label_length)
 
-dataX=np.ndarray((data_length,seq_length,130))
-dataY=np.ndarray((data_length,seq_length,1))
+dataX=np.ndarray((data_length,label_length,a.vec*10))
+dataY=np.ndarray((data_length,label_length,1))
 print(dataY)
 for i in range(0,data_length):
-    dataX[i]=TrainingData[i:i+seq_length]    
-    dataY[i]=label_scripts[i:i+seq_length]
+    dataX[i]=TrainingData[i:i+label_length]    
+    dataY[i]=label_scripts[i:i+label_length]
 out_info_label_scripts=tf.Session().run(tf.one_hot(dataY,a.no_output))
-out_info_label_scripts=np.reshape(out_info_label_scripts,(-1,seq_length,a.no_output))
-dataY=np.reshape(dataY,(-1,seq_length))
+out_info_label_scripts=np.reshape(out_info_label_scripts,(-1,label_length,a.no_output))
+dataX=np.reshape(dataX,(-1,seq_length,a.vec))
+dataY=np.reshape(dataY,(-1,label_length))
 
-print(dataY)
-print(dataY.shape)
 print("data ready")
 #a.beep()
-
-
-test_rate=0.7
-mfcc_train_fc=TrainingData[0:(int)(len(TrainingData)*test_rate)]
-out_info_train_fc=out_info_fc[0:(int)(len(out_info_fc)*test_rate),:]
-tds_train_fc=label_scripts[0:(int)(len(label_scripts)*test_rate),:]
-
-mfcc_train_fc1=mfcc_train_fc[0:(int)(0.5*len(mfcc_train_fc))]
-out_info_train_fc1=out_info_train_fc[0:(int)(0.5*len(out_info_train_fc))]
-tds_train_fc1=tds_train_fc[0:(int)(0.5*len(tds_train_fc))]
-
-mfcc_train_fc2=mfcc_train_fc[(int)(0.5*len(mfcc_train_fc)):len(mfcc_train_fc)]
-out_info_train_fc2=out_info_train_fc[(int)(0.5*len(out_info_train_fc)):len(out_info_train_fc)]
-tds_train_fc2=tds_train_fc[(int)(0.5*len(tds_train_fc)):len(tds_train_fc)]
-
-mfcc_test_fc=TrainingData[(int)(len(TrainingData)*test_rate):len(TrainingData)-1,:]
-out_info_test_fc=out_info_fc[(int)(len(out_info_fc)*test_rate):len(out_info_fc)-1]
-tds_test_fc=label_scripts[(int)(len(label_scripts)*test_rate):len(label_scripts)-1]
-
 
 ###
 
@@ -71,7 +47,7 @@ mfcc_train=dataX[0:(int)(len(dataX)*test_rate),:,:]
 out_info_train=out_info_label_scripts[0:(int)(len(out_info_label_scripts)*test_rate),:]
 tds_train=dataY[0:(int)(len(dataY)*test_rate),:]
 
-batch_size=1000
+batch_size=500
 total_data_length=len(dataX)
 num_batch=(int)(total_data_length/batch_size)
 
@@ -92,7 +68,7 @@ out_info_test=out_info_label_scripts[(int)(len(out_info_label_scripts)*test_rate
 tds_test=dataY[(int)(len(dataY)*test_rate):len(dataY)-1,:]
 
 print(dataX.shape)
-print(out_info_label_scripts.shape)
+print(dataY.shape)
 ###
 sess=tf.Session()
 rnn_model=a.RNN_model(sess,'rnn')
@@ -101,7 +77,7 @@ sess.run(tf.global_variables_initializer())
 
 train_range=(int)(num_batch*0.7)
 
-for i in range(51):
+for i in range(101):
     avg_cost=0
     start=time.time()
     for j in range(train_range):
