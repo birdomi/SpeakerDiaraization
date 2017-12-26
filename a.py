@@ -6,7 +6,8 @@ import winsound
 
 no_output =2
 vec_per_sec=10
-seq_length=30import numpy as np
+seq_length=30
+import numpy as np
 import tensorflow as tf
 import scipy.io.wavfile as wav
 import python_speech_features
