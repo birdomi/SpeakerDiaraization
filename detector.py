@@ -19,6 +19,7 @@ for i in range(0,length_Data):
 
 print(TrainingData.shape);
 
+
 label_scripts=np.loadtxt('Label.txt',dtype=int)
 print(label_scripts)
 print(label_scripts.shape)
@@ -29,8 +30,8 @@ out_info_fc=np.reshape(out_info_fc,(-1,a.no_output))
 seq_length=a.seq_length
 data_length=len(TrainingData)-seq_length
 
-dataX=np.ndarray((data_length,30,130))
-dataY=np.ndarray((data_length,30,1))
+dataX=np.ndarray((data_length,seq_length,130))
+dataY=np.ndarray((data_length,seq_length,1))
 print(dataY)
 for i in range(0,data_length):
     dataX[i]=TrainingData[i:i+seq_length]    
@@ -70,7 +71,7 @@ mfcc_train=dataX[0:(int)(len(dataX)*test_rate),:,:]
 out_info_train=out_info_label_scripts[0:(int)(len(out_info_label_scripts)*test_rate),:]
 tds_train=dataY[0:(int)(len(dataY)*test_rate),:]
 
-batch_size=100
+batch_size=1000
 total_data_length=len(dataX)
 num_batch=(int)(total_data_length/batch_size)
 
@@ -83,7 +84,6 @@ for i in range(num_batch):
     mfcc_train_array.append(dataX[i*batch_size:(i+1)*batch_size])
     out_info_train_array.append(out_info_label_scripts[i*batch_size:(i+1)*batch_size])
     tds_train_array.append(dataY[i*batch_size:(i+1)*batch_size])
-    print(mfcc_train_array[i].shape)
 
 print(num_batch)
 
@@ -99,35 +99,37 @@ rnn_model=a.RNN_model(sess,'rnn')
 fc_model=a.FC_model(sess,'m1')
 sess.run(tf.global_variables_initializer())
 
-num_epoch=100
-num_exampes=100
-num_batches=100
+train_range=(int)(num_batch*0.7)
 
-for i in range(101):
+for i in range(51):
     avg_cost=0
     start=time.time()
-    for j in range(batch_size-50):
+    for j in range(train_range):
         cost,_=rnn_model.train(mfcc_train_array[j],tds_train_array[j],len(tds_train_array[j]))
         avg_cost+=cost
     traintime=time.time()-start
-    avg_cost=avg_cost/(batch_size-50)
+    avg_cost=avg_cost/(train_range)
     print('step',i)
     print('cost1: ',avg_cost)
     print('time',traintime)\
 
 print('train run')
-for i in range(batch_size-50):
+for i in range(train_range):
     ac1,ac2=rnn_model.accuracy(mfcc_train_array[i],tds_train_array[i])
+    print(a.file.Return_Num_1(np.reshape(rnn_model.predict(mfcc_train_array[i]),[-1])))
+    print(a.file.Return_Num_1(np.reshape(tds_train_array[i],[-1])))
     print(ac1)
-    print(ac2+'\n')
+    print(ac2)
+    print(' ')
 
 print('test run')
-for j in range(batch_size-50,batch_size):
+for j in range(train_range,num_batch):
     ac1,ac2=rnn_model.accuracy(mfcc_train_array[j],tds_train_array[j])
     print(a.file.Return_Num_1(np.reshape(rnn_model.predict(mfcc_train_array[j]),[-1])))
     print(a.file.Return_Num_1(np.reshape(tds_train_array[j],[-1])))
     print(ac1)
-    print(ac2+'\n')
+    print(ac2)
+    print(' ')
 a.beep()
 
 """
