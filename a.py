@@ -15,7 +15,7 @@ import winsound
 no_output =2
 vec_per_sec=13
 vec=13
-seq_length=1*10
+seq_length=30
 vec_pec_frame=33
 learning_rate=1e-3
 
