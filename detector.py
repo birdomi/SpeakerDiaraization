@@ -6,9 +6,7 @@ import time
 
 
 data=a.Data()
-
-data.Mfcc('Bdb001.interaction.wav')
-data.Labeling('Label.txt')
+data.Data_Append('Bdb001.interaction.wav','Bdb001.txt')
 data.Make_Batch()
 
 ###
@@ -16,7 +14,8 @@ sess=tf.Session()
 rnn_model=a.RNN_model(sess,'rnn')
 sess.run(tf.global_variables_initializer())
 
-for i in range(251):
+ 
+for i in range(101):
     avg_cost=0
     avg_train1=0.0
     avg_train2=0.0
@@ -49,7 +48,6 @@ for i in range(251):
     print('step',i)
     print('cost1: ',avg_cost)
     print('time',traintime)
-    
 print('train run')
 for i in range(data.train.data_length):
     ac1,ac2=rnn_model.accuracy(data.train.mfcc_data[i],data.train.label_data[i])
@@ -68,4 +66,5 @@ for j in range(data.test.data_length):
     print(ac2)
     print(' ')
 
+rnn_model.save()
 a.beep()
