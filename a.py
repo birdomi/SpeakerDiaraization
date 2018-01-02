@@ -6,10 +6,11 @@ import winsound
 import sklearn.preprocessing
 
 #config
-label_weight=0
-timesteps=3
-learning_rate=1e-3
-batch_size=400
+label_weight=2
+time_windowSteps=80#*0.01s
+time_windowLength=4*80#*0.01s
+learning_rate=1e-2
+batch_size=200
 test_rate=0.5
 #
 
@@ -43,55 +44,53 @@ class Data(object):
         delta=python_speech_features.base.delta(mfcc,1)
         ddelta=python_speech_features.base.delta(delta,1)
 
-        Data_length=(int)(len(mfcc)/seq_length)-timesteps
+        Data_length=(int)(len(mfcc)/time_windowSteps)
         tmp_data_for_X=[]
-
+        
+        seq=(int)(time_windowLength/time_windowSteps)
+        num_seq=Data_length-seq
         for i in range(Data_length):
             tmp_data_for_X.append(Data.Return_a_Sequence_data(mfcc,i))
             tmp_data_for_X.append(Data.Return_a_Sequence_data(delta,i))
             tmp_data_for_X.append(Data.Return_a_Sequence_data(ddelta,i))
-            
-        tmp_data_for_X=np.reshape(tmp_data_for_X,(-1,vec_per_frame))
-        """
-        scaler=sklearn.preprocessing.MinMaxScaler(feature_range=(0,1))
-        scaler.fit(tmp_data_for_X)
-        tmp_data_for_X=scaler.transform(tmp_data_for_X)
-        """
-        tmp_data_for_X=np.reshape(tmp_data_for_X,(-1,seq_length*timesteps,vec_per_frame))
-        return tmp_data_for_X
+        tmp_data_for_X=np.reshape(tmp_data_for_X,(-1,time_windowSteps,vec_per_frame))
+        tmp_seq=[]
+        for i in range(num_seq):
+            for j in range(seq):
+                tmp_seq.append(tmp_data_for_X[i+j])
+        
+        tmp_seq=np.reshape(tmp_seq,(-1,time_windowLength,vec_per_frame))
+        return tmp_seq
 
     def Labeling(self,s):
         tmp=np.loadtxt('Label/'+s,dtype=int)
-        Data_length=(int)(len(tmp)/(2*label_weight+1))
+        Data_length=(int)(len(tmp)/time_windowSteps)
+                
+        seq=(int)(time_windowLength/time_windowSteps)
+        num_seq=Data_length-seq
 
         tmp_data_for_Y=[]
-        
         for i in range(Data_length):
-            is_1_in=False
-            for j in range((2*label_weight+1)):
-                if(tmp[i*(2*label_weight+1)+j]==1):
-                    is_1_in=True
-            if(is_1_in):
-                tmp_data_for_Y.append(1)
-            else:
-                tmp_data_for_Y.append(0)
+            tmp_data_for_Y.append(Data.Return_a_Sequence_data(tmp,i))        
+        tmp_data_for_Y=np.reshape(tmp_data_for_Y,(-1,time_windowSteps))
 
-        tmp_data_for_Y=np.reshape(tmp_data_for_Y,(-1))
         dataY=[]
-        for i in range(len(tmp_data_for_Y)-timesteps):
-            dataY.append(tmp_data_for_Y[i:i+timesteps])
-        tmp_data_for_Y=np.reshape(dataY,(-1,1))
-        return tmp_data_for_Y
+        for i in range(num_seq):
+            for j in range(seq):
+                dataY.append(tmp_data_for_Y[i+j])
+        dataY=np.reshape(dataY,(-1,time_windowLength))
+
+        return dataY
     
     def Data_Append(self,mfccpath,labelpath):
         append_mfcc=self.Mfcc(mfccpath)
         self.mfcc_data=np.append(self.mfcc_data,append_mfcc)    
-        self.mfcc_data=np.reshape(self.mfcc_data,(-1,seq_length*timesteps,vec_per_frame))
+        self.mfcc_data=np.reshape(self.mfcc_data,(-1,time_windowLength,vec_per_frame))
         print(self.mfcc_data.shape)
 
         append_label=self.Labeling(labelpath)
         self.label_data=np.append(self.label_data,append_label)
-        self.label_data=np.reshape(self.label_data,(-1,timesteps))
+        self.label_data=np.reshape(self.label_data,(-1,time_windowLength))
         print(self.label_data.shape)
 
     def Make_Batch(self):
@@ -125,7 +124,7 @@ class Data(object):
         return
 
     def Return_a_Sequence_data(array,index):
-        temp=array[index*seq_length:(index+timesteps)*seq_length]
+        temp=array[index:(index+time_windowSteps)]
         temp=np.reshape(temp,(-1))
         return temp     
 
@@ -148,46 +147,59 @@ class RNN_model:
 
     def _build_net(self):
         with tf.variable_scope(self.name):            
-            layer1=32
-            layer2=20
+            layer1=35
+            layer2=35
+            layer3=35
+            layer4=20
+            
+            self.layer_input=layer4*2
+            self.layer1=40
+            self.layer2=10
+            self.layer_output=1
 
-            self.layer_input=seq_length*layer2
-            self.layer_output=no_output
-            label_length=(int)(seq_length/10/(2*label_weight+1))
-
-            self.X=tf.placeholder(tf.float32,[None,seq_length*timesteps,vec_per_frame])
-            self.Y_transcripts=tf.placeholder(tf.int32,[None,label_length*timesteps])
+            self.X=tf.placeholder(tf.float32,[None,time_windowLength,vec_per_frame])
+            self.Y_transcripts=tf.placeholder(tf.float32,[None,time_windowLength])
             self.keep_prob=tf.placeholder(tf.float32)
             self.data_length=tf.placeholder(tf.int32)
             
-            layer1_cell=tf.contrib.rnn.LSTMCell(num_units=layer1,initializer=tf.contrib.layers.xavier_initializer())
-            layer2_cell=tf.contrib.rnn.LSTMCell(num_units=layer2,initializer=tf.contrib.layers.xavier_initializer())
+            layer1_cell=tf.contrib.rnn.BasicLSTMCell(num_units=layer1,activation=tf.nn.tanh)
+            layer4_cell=tf.contrib.rnn.BasicLSTMCell(num_units=layer4,activation=tf.nn.tanh)
             
+            multi_cell=tf.contrib.rnn.MultiRNNCell([layer1_cell,layer4_cell])
+            
+            rnn_output,_=tf.nn.bidirectional_dynamic_rnn(multi_cell,multi_cell,self.X,dtype=tf.float32)
+            fc_inputs=tf.reshape(rnn_output,[-1,self.layer_input])
                         
-            multi_cell=tf.contrib.rnn.MultiRNNCell([layer1_cell,
-                                                    layer2_cell])
-            
-            rnn_outputs,_=tf.nn.dynamic_rnn(multi_cell,self.X,dtype=tf.float32)
+            W1=tf.Variable(tf.random_normal([self.layer_input,self.layer1]))
+            b1=tf.Variable(tf.random_normal([self.layer1]))
+            L1=tf.nn.tanh(tf.matmul(fc_inputs,W1)+b1)
 
-            #rnn_outputs=rnn_outputs[:,-((2*label_weight+1)+1):-1]
-            fc_inputs=tf.reshape(rnn_outputs,[-1,self.layer_input])
-                        
-            W1=tf.get_variable('W1',[self.layer_input,self.layer_output],initializer=tf.contrib.layers.xavier_initializer())
-            b1=tf.Variable(tf.random_normal([self.layer_output]))
-            L=(tf.matmul(fc_inputs,W1)+b1)
-            self.outputs=tf.reshape(L,(-1,label_length*timesteps,no_output))           
+            W2=tf.Variable(tf.random_normal([self.layer1,self.layer2]))
+            b2=tf.Variable(tf.random_normal([self.layer2]))
+            L2=tf.nn.tanh(tf.matmul(L1,W2)+b2)
+
+            W3=tf.Variable(tf.random_normal([self.layer2,self.layer_output]))
+            b3=tf.Variable(tf.random_normal([self.layer_output]))
+            L3=tf.nn.sigmoid(tf.matmul(L2,W3)+b3)
+
+            self.outputs=tf.reshape(L3,(-1,time_windowLength))           
             
             
-        self.weights=tf.ones([self.data_length,label_length*timesteps])        
-        self.cost=tf.reduce_mean(tf.contrib.seq2seq.sequence_loss(logits=self.outputs,targets=self.Y_transcripts,weights=self.weights))
+        self.cost=tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(logits=self.outputs,labels=self.Y_transcripts))
         self.optimizer=tf.train.AdamOptimizer(learning_rate=learning_rate).minimize(self.cost)
 
     def show_cost(self,x,y,keep_prob=1.0):
         return self.sess.run(self.cost,feed_dict={self.X:x,self.Y_transcripts:y,self.keep_prob:keep_prob})
       
     def predict(self,x_test,keep_prob=1.0):
-
-        return self.sess.run(tf.argmax(self.outputs,axis=2),feed_dict={self.X:x_test,self.keep_prob:keep_prob})
+        out=self.sess.run(self.outputs,feed_dict={self.X:x_test,self.keep_prob:keep_prob})
+        out=np.reshape(out,(-1))
+        for i in range(len(out)):
+            if(out[i]>0.5):
+                out[i]=1
+            else:
+                out[i]=0
+        return out
   
     def output(self,x_test,keep_prob=1.0):
         return self.sess.run(self.outputs,feed_dict={self.X:x_test,self.keep_prob:keep_prob})
