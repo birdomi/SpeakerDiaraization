@@ -15,7 +15,7 @@ rnn_model=a.RNN_model(sess,'rnn')
 sess.run(tf.global_variables_initializer())
 
  
-for i in range(101):
+for i in range(1001):
     avg_cost=0
     avg_train1=0.0
     avg_train2=0.0
