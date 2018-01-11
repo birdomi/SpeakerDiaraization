@@ -268,6 +268,63 @@ class RNN_model:
             accuracy_non_changePoint=(float)(check_for_falseAlarm/total_non_changePoint)
                 
         return accuracy_changePoint,accuracy_non_changePoint
+    def Make_Result(self,x_test,keep_prob=1.0):
+        result=np.reshape(self.predict(x_test),[-1])
+
+        Temp=[]
+        time=(int)(time_windowLength/time_windowSteps)
+        
+        for i in range(4):
+            if(i==0):
+                for j in range(time_windowSteps):
+                    Temp.append(result[j])
+            if(i==1):
+                for j in range(time_windowSteps,2*time_windowSteps):
+                    index=j
+                    tmp_sum=0
+                    for k in range(2):
+                        tmp_sum+=result[index+3*k*time_windowSteps]
+                    Temp.append(tmp_sum/2.0)
+            if(i==2):
+                for j in range(2*time_windowSteps,3*time_windowSteps):
+                    index=j
+                    tmp_sum=0
+                    for k in range(3):
+                        tmp_sum+=result[index+3*k*time_windowSteps]
+                    Temp.append(tmp_sum/3.0)
+
+        for i in range(len(x_test)-3):
+            step=(i+1)*time_windowLength
+            for j in range(step-time_windowSteps,step):
+                index=j
+                tmp_sum=0
+                for k in range(4):
+                    tmp_sum+=result[index+3*k*time_windowSteps]
+                Temp.append(tmp_sum/4.0)
+
+        for i in range(len(x_test)-3,len(x_test)):
+            step=(i+1)*time_windowLength
+
+            if(i==len(x_test)-3):
+               for j in range(step-time_windowSteps,step):
+                   index=j
+                   tmp_sum=0
+                   for k in range(3):
+                       tmp_sum+=result[index+3*k*time_windowSteps]
+                   Temp.append(tmp_sum/3.0)
+            if(i==len(x_test)-2):
+                for j in range(step-time_windowSteps,step):
+                   index=j
+                   tmp_sum=0
+                   for k in range(2):
+                       tmp_sum+=result[index+3*k*time_windowSteps]
+                   Temp.append(tmp_sum/2.0)
+            if(i==len(x_test)-1):
+                step=(i+1)*time_windowLength
+                for j in range(step-time_windowSteps,step):
+                    Temp.append(result[j])
+        return Temp
+    
     def save(self):
         saver=tf.train.Saver()
         saver.save(self.sess,'Model/model')
