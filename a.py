@@ -8,9 +8,8 @@ from sklearn.preprocessing import MinMaxScaler
 #config
 time_windowSteps=80#*0.01s
 time_windowLength=4*80#*0.01s
-learning_rate=0.002
-batch_size=150
-test_rate=0.7
+learning_rate=0.0001
+batch_size=1000
 #
 
 vec_per_frame=39
@@ -28,19 +27,19 @@ class mfcc_label_data():
     data_length=0
     
 class Data(object):
-    mfcc_data=[]
-    label_data=[]
-
-    train=mfcc_label_data()
-    test=mfcc_label_data()
-    test_small_label=mfcc_label_data()
-    
+    data={
+        'train':mfcc_label_data(),
+        'dev':mfcc_label_data(),
+        'test':mfcc_label_data()
+    }
 
     def Mfcc(self,s):        
-        mfcc=np.loadtxt('wave/'+s)
+        sig,f=wav.read('wave/'+s)
+        mfcc=python_speech_features.base.mfcc(f,sig)
         delta=python_speech_features.base.delta(mfcc,1)
         ddelta=python_speech_features.base.delta(delta,1)
         
+
         Data_length=(int)(len(mfcc)/time_windowSteps)
         tmp_data_for_X=[]
         
@@ -83,85 +82,43 @@ class Data(object):
                 dataY.append(tmp_data_for_Y[i+j])
         dataY=np.reshape(dataY,(-1,time_windowLength))
 
-        return dataY
-    
-    def Data_Append(self,mfccpath,labelpath):
-        append_mfcc=self.Mfcc(mfccpath)
-        self.mfcc_data=np.append(self.mfcc_data,append_mfcc)    
-        self.mfcc_data=np.reshape(self.mfcc_data,(-1,time_windowLength,vec_per_frame))
-        print(self.mfcc_data.shape)
-
-        append_label=self.Labeling(labelpath)
-        self.label_data=np.append(self.label_data,append_label)
-        self.label_data=np.reshape(self.label_data,(-1,time_windowLength))
-        print(self.label_data.shape)        
-
-    def Make_Batch(self):
-        data_length=len(self.label_data)
-        
-        if(data_length==0):
-            print('Data not Ready')
-            return
-        
-        number_batch=(int)(data_length/batch_size)
-
-        tmp_mfcc=[]
-        tmp_label=[]
-
-        for i in range((int)(number_batch*test_rate)):
-            tmp_mfcc.append(self.mfcc_data[i*batch_size:(i+1)*batch_size])
-            tmp_label.append(self.label_data[i*batch_size:(i+1)*batch_size])
-            self.train.data_length+=1
-        self.train.mfcc_data=tmp_mfcc
-        self.train.label_data=tmp_label
-
-        tmp_mfcc=[]
-        tmp_label=[]
-        for i in range((int)(number_batch*test_rate),number_batch):
-            tmp_mfcc.append(self.mfcc_data[i*batch_size:(i+1)*batch_size])
-            tmp_label.append(self.label_data[i*batch_size:(i+1)*batch_size])
-            self.test.data_length+=1
-        
-        self.test.mfcc_data=tmp_mfcc
-        self.test.label_data=tmp_label
-        return
-
+        return dataY 
+   
     def Return_a_Sequence_data(array,index):
         temp=array[index:(index+time_windowSteps)]
         temp=np.reshape(temp,(-1))
         return temp     
 
-    def Data_Load_forSmall_Label(self,mfccpath,labelpath):
-        append_mfcc=self.Mfcc(mfccpath)
-        mfcc_data=append_mfcc
-        mfcc_data=np.reshape(mfcc_data,(-1,time_windowLength,vec_per_frame))
-        print(mfcc_data.shape)
+    def Load_Data(self,mfccpath,labelpath,dataname):
+        for i in range(len(mfccpath)):
+            append_mfcc=self.Mfcc(mfccpath[i])
+            mfcc_data=append_mfcc
+            mfcc_data=np.reshape(mfcc_data,(-1,time_windowLength,vec_per_frame))
+            print(mfcc_data.shape)
 
-        append_label=self.Labeling(labelpath)
-        label_data=append_label
-        label_data=np.reshape(label_data,(-1,time_windowLength))
-        print(label_data.shape)
+            append_label=self.Labeling(labelpath[i])
+            label_data=append_label
+            label_data=np.reshape(label_data,(-1,time_windowLength))
+            print(label_data.shape)
 
-        data_length=len(label_data)
+            data_length=len(label_data)
         
-        if(data_length==0):
-            print('Data not Ready')
-            return
+            if(data_length==0):
+               print('Data not Ready')
+               return
         
-        number_batch=(int)(data_length/batch_size)
+            number_batch=(int)(data_length/batch_size)
 
-        tmp_mfcc=[]
-        tmp_label=[]
+            tmp_mfcc=self.data[dataname].mfcc_data
+            tmp_label=self.data[dataname].label_data
 
-        for i in range((int)(number_batch)):
-            tmp_mfcc.append(mfcc_data[i*batch_size:(i+1)*batch_size])
-            tmp_label.append(label_data[i*batch_size:(i+1)*batch_size])
-            self.test_small_label.data_length+=1
-        self.test_small_label.mfcc_data=tmp_mfcc
-        self.test_small_label.label_data=tmp_label
-        return
-
-
+            for i in range((int)(number_batch)):
+                tmp_mfcc.append(mfcc_data[i*batch_size:(i+1)*batch_size])
+                tmp_label.append(label_data[i*batch_size:(i+1)*batch_size])
+                self.data[dataname].data_length+=1
+            self.data[dataname].mfcc_data=tmp_mfcc
+            self.data[dataname].label_data=tmp_label
+        
 
 class file(object):
     def Return_Num_1(array):
@@ -239,7 +196,7 @@ class RNN_model:
     def output(self,x_test,keep_prob=1.0):
         return self.sess.run(self.outputs,feed_dict={self.X:x_test,self.keep_prob:keep_prob})
 
-    def train(self,x_data,y_data,data_length,keep_prob=0.9):
+    def train(self,x_data,y_data,data_length,keep_prob=1.0):
         return self.sess.run([self.cost,self.outputs,self.optimizer],feed_dict={self.X:x_data,self.Y_transcripts:y_data,self.data_length:data_length,self.keep_prob:keep_prob})
 
     def accuracy(self,x_data,y_data):
@@ -268,6 +225,7 @@ class RNN_model:
             accuracy_non_changePoint=(float)(check_for_falseAlarm/total_non_changePoint)
                 
         return accuracy_changePoint,accuracy_non_changePoint
+
     def Make_Result(self,x_test,keep_prob=1.0):
         result=np.reshape(self.predict(x_test),[-1])
 
@@ -324,7 +282,7 @@ class RNN_model:
                 for j in range(step-time_windowSteps,step):
                     Temp.append(result[j])
         return Temp
-    
+
     def save(self):
         saver=tf.train.Saver()
         saver.save(self.sess,'Model/model')
