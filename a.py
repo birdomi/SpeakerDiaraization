@@ -9,7 +9,7 @@ from sklearn.preprocessing import MinMaxScaler
 time_windowSteps=80#*0.01s
 time_windowLength=4*time_windowSteps#*0.01s
 learning_rate=0.01
-batch_size=150
+batch_size=3000
 test_rate=0.7
 threshold=0.25
 check_range=24
@@ -28,9 +28,11 @@ class Time_liner(object):
     Y_data=None
 
     def Label_Time(self,label_text):
-        s=np.loadtxt('Label/'+label_text)
+        s=np.loadtxt('timeLabel/'+label_text)    
+        len80=(int)(len(s)/80)
+        s=s[0:(len80-1)*80]
+        
         length=(int)(len(s)/50)
-        print(len(s))
         result=[]
         for i in range(length):
             step=50*i
@@ -60,13 +62,13 @@ class Time_liner(object):
                         alreadyAppend=True
             if(alreadyAppend==False):
                 result.append(0)
-        result=result[6:-9]
+        result=result[0:length]
         self.Y_data=np.reshape(result,(-1))
         return result
 
     def Line_Predict(self,RNN_result):
         length=(int)(len(RNN_result)/50)
-        tmp=RNN_result[300:length*50-300]
+        tmp=RNN_result[0:length*50]
         self.X_data=np.reshape(tmp,(-1,50))
         return self.X_data
 
@@ -78,10 +80,12 @@ class Time_liner(object):
     def _build_net(self):
         with tf.variable_scope(self.name):
             self.layer_input=50
-            self.layer1=120
-            self.layer2=100
-            self.layer3=80
-            self.layer4=50
+            self.layer1=150
+            self.layer2=150
+            self.layer3=100
+            self.layer4=100
+            self.layer5=50
+            self.layer6=50
             self.layer_output=6
                         
             self.X=tf.placeholder(tf.float32,[None,self.layer_input],'X')
@@ -109,22 +113,58 @@ class Time_liner(object):
             L4=tf.nn.relu(tf.matmul(L3,W4)+b4)
             L4=tf.nn.dropout(L4,self.keep_prob)
             
-            W5=tf.get_variable('W5',[self.layer4,self.layer_output],tf.float32,tf.contrib.layers.xavier_initializer())
-            b5=tf.Variable(tf.random_normal([self.layer_output]))
-            L5=(tf.matmul(L4,W5)+b5)
+            W5=tf.get_variable('W5',[self.layer4,self.layer5],tf.float32,tf.contrib.layers.xavier_initializer())
+            b5=tf.Variable(tf.random_normal([self.layer5]))
+            L5=tf.nn.relu(tf.matmul(L4,W5)+b5)
+            L5=tf.nn.dropout(L5,self.keep_prob)
+
+            W6=tf.get_variable('W6',[self.layer5,self.layer6],tf.float32,tf.contrib.layers.xavier_initializer())
+            b6=tf.Variable(tf.random_normal([self.layer6]))
+            L6=tf.nn.relu(tf.matmul(L5,W6)+b6)
+            L6=tf.nn.dropout(L6,self.keep_prob)
+
+            W7=tf.get_variable('W7',[self.layer6,self.layer_output],tf.float32,tf.contrib.layers.xavier_initializer())
+            b7=tf.Variable(tf.random_normal([self.layer_output]))
+            L7=(tf.matmul(L6,W7)+b7)
         
-        self.cost=tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(logits=L5,labels=self.Y_onehot))
-        self.optimizer=tf.train.AdamOptimizer(learning_rate=learning_rate).minimize(self.cost)
-        self.out=tf.argmax(L5,axis=1,output_type=tf.int32)
+        self.cost=tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(logits=L7,labels=self.Y_onehot))
+        self.optimizer=tf.train.AdamOptimizer(learning_rate=0.01).minimize(self.cost)
+        self.out=tf.argmax(L7,axis=1,output_type=tf.int32)
         self.correct=tf.equal(self.out,self.Y)
         self.acc=tf.reduce_mean(tf.cast(self.correct,tf.float32))
     
-    def train(self,x,y,keep_prob=0.7):
+    def train(self,x,y,keep_prob=0.9):
         return self.sess.run([self.cost,self.optimizer],feed_dict={self.X:x,self.Y:y,self.keep_prob:keep_prob})
     def output(self,x,keep_prob=1.0):
         return self.sess.run(self.out,feed_dict={self.X:x,self.keep_prob:keep_prob})
     def accuracy(self,x,y,keep_prob=1.0):
-        return self.sess.run(self.acc,feed_dict={self.X:x,self.Y:y,self.keep_prob:keep_prob})
+        x_prediction=np.reshape(self.output(x),[-1])
+        y_prediction=np.reshape(y,[-1])
+        
+        check_for_changePoint=0
+        check_for_falseAlarm=0
+        total_changePoint=0
+        total_non_changePoint=0                
+        accuracy_changePoint=0.0
+        accuracy_non_changePoint=0.0
+        for i in range(self.sess.run(tf.size(y_prediction))):            
+            if(y_prediction[i]==0):
+                total_non_changePoint=total_non_changePoint+1
+                if(x_prediction[i]==0):
+                    check_for_falseAlarm=check_for_falseAlarm+1
+            else:
+                total_changePoint=total_changePoint+1
+                if(x_prediction[i]==y_prediction[i]):
+                    check_for_changePoint=check_for_changePoint+1
+
+        if(total_changePoint!=0):
+            accuracy_changePoint=(float)(check_for_changePoint/total_changePoint)
+        if(total_non_changePoint!=0):
+            accuracy_non_changePoint=(float)(check_for_falseAlarm/total_non_changePoint)
+                
+        print('ChangePoint Number: ',total_changePoint,' Correct: ',check_for_changePoint)
+        print('NoneChangePoint Number: ',total_non_changePoint,' Correct: ',check_for_falseAlarm)
+        return accuracy_changePoint,accuracy_non_changePoint
     def SaveModel(self):        
         saver=tf.train.Saver()
         saver.save(self.sess,'timeLinerModel/model')
@@ -132,15 +172,15 @@ class Time_liner(object):
         saver=tf.train.Saver()
         saver.restore(self.sess,'timeLinerModel/model')
 
-    def Save_Result(self,x,keep_prob=1.0):
+    def Save_Result(self,x,filename,keep_prob=1.0):
         outputArray=self.output(x)
 
         s=[]
         for i in range(len(outputArray)):
             for j in range(1,6):
                 if(outputArray[i]==j):
-                    s.append(str(2.95+i*0.5+j*0.1))
-        np.savetxt('./wave.bdr',s,fmt='%s',delimiter='\n')
+                    s.append(str(-0.05+i*0.5+j*0.1))
+        np.savetxt(filename+'.bdr',s,fmt='%s',delimiter='\n')
 
 
 
@@ -152,13 +192,26 @@ class mfcc_label_data():
     
 class Data(object):
     data={
-        'train':mfcc_label_data(),
-        'dev':mfcc_label_data(),
-        'test':mfcc_label_data()
+        0:mfcc_label_data(),
+        1:mfcc_label_data(),
+        2:mfcc_label_data(),
+        3:mfcc_label_data(),
+        4:mfcc_label_data(),
+        5:mfcc_label_data(),
+        6:mfcc_label_data(),
+        7:mfcc_label_data(),
+        8:mfcc_label_data(),
+        9:mfcc_label_data(),
+        10:mfcc_label_data(),
+        11:mfcc_label_data(),
+        12:mfcc_label_data(),
+        13:mfcc_label_data(),
+        14:mfcc_label_data(),
+        15:mfcc_label_data()
     }
 
     def Mfcc(self,s):        
-        sig,f=wav.read('wave/'+s)
+        sig,f=wav.read('Wave/'+s)
         mfcc=python_speech_features.base.mfcc(f,sig)
         delta=python_speech_features.base.delta(mfcc,1)
         ddelta=python_speech_features.base.delta(delta,1)
@@ -185,8 +238,9 @@ class Data(object):
             for j in range(seq):
                 tmp_seq.append(tmp_data_for_X[i+j])
         
-        tmp_seq=np.reshape(tmp_seq,(-1,time_windowLength,vec_per_frame))
+        tmp_seq=np.reshape(tmp_seq,(-1,time_windowLength,vec_per_frame))        
         return tmp_seq
+    
 
     def Labeling(self,s):
         tmp=np.loadtxt('Label/'+s,dtype=int)
@@ -213,8 +267,24 @@ class Data(object):
         temp=np.reshape(temp,(-1))
         return temp     
 
-    def Load_Data(self,mfccpath,dataname):
-        self.data['dataname'].mfcc_data=Mfcc(mfccpath)
+    def Load_Data(self,mfccpath,labelpath,dataname):
+        mfcc=self.Mfcc(mfccpath)
+        print(mfcc)
+        label=self.Labeling(labelpath)        
+
+        length=len(label)
+        number_batch=(int)(length/batch_size)
+        print(dataname)
+
+        for i in range(number_batch):
+            self.data[dataname].mfcc_data.append(mfcc[i*batch_size:(i+1)*batch_size])
+            self.data[dataname].label_data.append(label[i*batch_size:(i+1)*batch_size])
+            self.data[dataname].data_length+=1
+            print(self.data[dataname].mfcc_data[i])
+        self.data[dataname].mfcc_data.append(mfcc[number_batch*batch_size:])
+        self.data[dataname].label_data.append(label[number_batch*batch_size:])
+        self.data[dataname].data_length+=1
+        print(self.data[dataname].mfcc_data[number_batch].shape)
         
 
 class file(object):
@@ -253,8 +323,6 @@ class RNN_model:
             
             layer1_cell=tf.contrib.rnn.LSTMCell(num_units=layer1,activation=tf.nn.tanh,initializer=tf.contrib.layers.xavier_initializer())
             layer1_cell=tf.contrib.rnn.DropoutWrapper(layer1_cell,self.keep_prob,self.keep_prob)
-            layer2_cell=tf.contrib.rnn.LSTMCell(num_units=layer2,activation=tf.nn.tanh,initializer=tf.contrib.layers.xavier_initializer())
-            layer3_cell=tf.contrib.rnn.LSTMCell(num_units=layer3,activation=tf.nn.tanh,initializer=tf.contrib.layers.xavier_initializer())
             layer4_cell=tf.contrib.rnn.LSTMCell(num_units=layer4,activation=tf.nn.tanh,initializer=tf.contrib.layers.xavier_initializer())
             layer4_cell=tf.contrib.rnn.DropoutWrapper(layer4_cell,self.keep_prob,self.keep_prob)
 
@@ -293,8 +361,8 @@ class RNN_model:
     def output(self,x_test,keep_prob=1.0):
         return self.sess.run(self.outputs,feed_dict={self.X:x_test,self.keep_prob:keep_prob})
 
-    def train(self,x_data,y_data,data_length,keep_prob=1.0):
-        return self.sess.run([self.cost,self.outputs,self.optimizer],feed_dict={self.X:x_data,self.Y_transcripts:y_data,self.data_length:data_length,self.keep_prob:keep_prob})
+    def train(self,x_data,y_data,keep_prob=0.9):
+        return self.sess.run([self.cost,self.optimizer],feed_dict={self.X:x_data,self.Y_transcripts:y_data,self.keep_prob:keep_prob})
 
     def accuracy(self,x_data,y_data):
         x_prediction=np.reshape(self.predict(x_data),[-1])
@@ -414,3 +482,4 @@ class RNN_model:
 
         return acc
 pass
+
