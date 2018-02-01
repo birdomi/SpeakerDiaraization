@@ -1,0 +1,184 @@
+import numpy as np
+import tensorflow as tf
+import scipy.io.wavfile as wav
+import python_speech_features
+import winsound
+import os
+from sklearn.preprocessing import MinMaxScaler
+
+class Data():
+    def __init__(self):
+        mfcc=[]
+        label=[]
+
+    def Get_Data(self,mfcc_path,label_path):
+        if(os.path.exists(mfcc_path)):
+            LodaData(self,mfcc_path,label_path)
+        else:
+            MakeData(self,mfcc_path,label_path)
+            
+    def LodaData(self,mfcc_path,label_path):
+        pass
+    
+    def MakeData(self,mfcc_path,label_path):
+        pass
+
+class ICSI_Data(Data):
+    def MakeData(self, mfcc_path, label_path):
+        
+
+
+class Model():
+    def __init__(self,sess,name,learning_rate):
+        self.sess=sess
+        self.name=name
+        self.learning_rate=learning_rate
+        self._build_net()
+
+    def _build_net(self):
+        pass
+
+    def Predict(self,x,keep_prob=1.0):
+        return self.sess.run(tf.argmax(self.Outputs,axis=2),feed_dict={self.X:x,self.keep_prob:keep_prob})
+
+    def Outputs(self,x,keep_prob=1.0):
+        return self.sess.run(self.outputs,feed_dict={self.X:x,self.keep_prob:keep_prob})
+
+    def Train(self,x,y,keep_prob=0.8):
+        return self.sess.run([self.cost,self.optimizer],feed_dict={self.X:x,self.Y:y,self.keep_prob:keep_prob})
+
+    def Accuracy(self,x,y,keep_prob=1.0):
+        pass
+    
+    def Save(self):
+        saver=tf.train.Saver()
+        saver.save(self.sess, self.name+'/model')
+
+    def Restore(self):
+        saver=tf.train.Saver()
+        saver.restore(self.sess,self.name+'/model')
+
+class RNN_Model(Model):
+    def _build_net(self):
+        self.LSTM_layer1=35
+        self.LSTM_layer2=35
+        self.LSTM_layer3=30
+
+        self.FC_layer1=self.LSTM_layer3*2
+        self.FC_layer2=60
+        self.FC_layer3=25
+        self.FC_layer4=2
+
+        self.X=tf.placeholder(tf.float32,[None,320,39])
+        self.Y=tf.placeholder(tf.int32,[None,320])
+        self.keep_prob=tf.placeholder(tf.float32)
+
+        self._RNN1_cell=tf.contrib.rnn.BasicLSTMCell(self.LSTM_layer1)
+        self.RNN1_cell=tf.contrib.rnn.DropoutWrapper(self._RNN1_cell,output_keep_prob=self.keep_prob)
+
+        self._RNN2_cell=tf.contrib.rnn.BasicLSTMCell(self.LSTM_layer2)
+        self.RNN2_cell=tf.contrib.rnn.DropoutWrapper(self._RNN2_cell,output_keep_prob=self.keep_prob)
+        
+        self._RNN3_cell=tf.contrib.rnn.BasicLSTMCell(self.LSTM_layer3)
+        self.RNN3_cell=tf.contrib.rnn.DropoutWrapper(self._RNN3_cell,output_keep_prob=self.keep_prob)
+
+        self.cell_fw=[self.RNN1_cell,self.RNN2_cell,self.RNN3_cell]
+        self.cell_bw=[self.RNN1_cell,self.RNN2_cell,self.RNN3_cell]
+        self.RNN_output,_,_=tf.contrib.rnn.stack_bidirectional_dynamic_rnn(self.cell_fw,self.cell_bw,self.X,dtype=tf.float32)
+
+        self.fc_input=tf.reshape(self.RNN_output,[-1,self.FC_layer1])
+
+        self.FC1=tf.contrib.layers.fully_connected(self.fc_input,self.FC_layer2)
+        self.FC2=tf.contrib.layers.fully_connected(self.FC1,self.FC_layer3)
+        self.FC3=tf.contrib.layers.fully_connected(self.FC2,self.FC_layer4,activation_fn=None)
+
+        self.outputs=tf.reshape(self.FC3,[-1,320,2])
+
+        self.cost=tf.reduce_mean(tf.nn.sparse_softmax_cross_entropy_with_logits(logits=self.outputs,labels=self.Y))
+        self.optimizer=tf.train.AdamOptimizer(learning_rate=self.learning_rate).minimize(self.cost)
+
+    def Accuracy(self,x,y):
+        x_prediction=np.reshape(self.Predict(x),[-1])
+        y_prediction=np.reshape(y,[-1])
+        
+        check_for_changePoint=0
+        check_for_falseAlarm=0
+        total_changePoint=0
+        total_non_changePoint=0
+        accuracy_changePoint=0.0
+        accuracy_non_changePoint=0.0
+        for i in range(self.sess.run(tf.size(y_prediction))):            
+            if(y_prediction[i]==1):
+                total_changePoint=total_changePoint+1
+                if(x_prediction[i]==1):
+                    check_for_changePoint=check_for_changePoint+1
+            else:
+                total_non_changePoint=total_non_changePoint+1
+                if(x_prediction[i]==0):
+                    check_for_falseAlarm=check_for_falseAlarm+1
+
+        if(total_changePoint!=0):
+            accuracy_changePoint=(float)(check_for_changePoint/total_changePoint)
+        if(total_non_changePoint!=0):
+            accuracy_non_changePoint=(float)(check_for_falseAlarm/total_non_changePoint)
+                
+        return accuracy_changePoint,accuracy_non_changePoint
+
+    def Make_Result(self,x_test,keep_prob=1.0):
+        result=np.reshape(self.predict(x_test),[-1])
+
+        Temp=[]
+        time=(int)(time_windowLength/time_windowSteps)
+        
+        for i in range(4):
+            if(i==0):
+                for j in range(time_windowSteps):
+                    Temp.append(result[j])
+            if(i==1):
+                for j in range(time_windowSteps,2*time_windowSteps):
+                    index=j
+                    tmp_sum=0
+                    for k in range(2):
+                        tmp_sum+=result[index+3*k*time_windowSteps]
+                    Temp.append(tmp_sum/2.0)
+            if(i==2):
+                for j in range(2*time_windowSteps,3*time_windowSteps):
+                    index=j
+                    tmp_sum=0
+                    for k in range(3):
+                        tmp_sum+=result[index+3*k*time_windowSteps]
+                    Temp.append(tmp_sum/3.0)
+
+        for i in range(len(x_test)-3):
+            step=(i+1)*time_windowLength
+            for j in range(step-time_windowSteps,step):
+                index=j
+                tmp_sum=0
+                for k in range(4):
+                    tmp_sum+=result[index+3*k*time_windowSteps]
+                Temp.append(tmp_sum/4.0)
+
+        for i in range(len(x_test)-3,len(x_test)):
+            step=(i+1)*time_windowLength
+
+            if(i==len(x_test)-3):
+               for j in range(step-time_windowSteps,step):
+                   index=j
+                   tmp_sum=0
+                   for k in range(3):
+                       tmp_sum+=result[index+3*k*time_windowSteps]
+                   Temp.append(tmp_sum/3.0)
+            if(i==len(x_test)-2):
+                for j in range(step-time_windowSteps,step):
+                   index=j
+                   tmp_sum=0
+                   for k in range(2):
+                       tmp_sum+=result[index+3*k*time_windowSteps]
+                   Temp.append(tmp_sum/2.0)
+            if(i==len(x_test)-1):
+                step=(i+1)*time_windowLength
+                for j in range(step-time_windowSteps,step):
+                    Temp.append(result[j])
+        return Temp
+
+
