@@ -7,6 +7,7 @@ import time
 import random
 import sys
 
+
 d=a.Data()
 mfccname=['Bdb001.interaction.wav','Bed003.interaction.wav','Bed004.interaction.wav','Bed005.interaction.wav',
           'Bed006.interaction.wav','Bed008.interaction.wav','Bed009.interaction.wav','Bed010.interaction.wav',
@@ -26,24 +27,38 @@ for i in range(datanum):
 sess=tf.Session()
 rnn_model=a.RNN_model(sess,'rnn')
 sess.run(tf.global_variables_initializer())
-rnn_model.restore()
 
-for i in range(datanum):
+for i in range(datanum):    
     d.Load_Data(mfccname[i],labelname[i],i)
 
+number_batch=0
 for i in range(datanum):
-    for k in range(d.data[i].data_length):
-        print(d.data[i].mfcc_data[k].shape)
-        print(rnn_model.accuracy(d.data[i].mfcc_data[k],d.data[i].label_data[k]))
+    number_batch+=d.data[i].data_length
 
+for i in range(1  ,   5001):
+    cost_sum=0
+    learning_rate=0.001
 
+    for N in range(datanum):
+        for index in range(d.data[N].data_length):
+            cost,_=rnn_model.train(d.data[N].mfcc_data[index],d.data[N].label_data[index],learning_rate)
+            cost_sum+=cost
+    print('step: ',i)
+    print('cost: ',cost_sum/number_batch)
 
+    if(i%25==0):
+        for N in range(datanum):
+            acc_sum1=0
+            acc_sum0=0
+            for index in range(d.data[N].data_length):
+                acc1,acc0=rnn_model.accuracy(d.data[N].mfcc_data[index],d.data[N].label_data[index])
+                acc_sum1+=acc1
+                acc_sum0+=acc0
+            print(str(N)+'번째 데이터 정확도')
+            print('accuracy_for_1: ',acc_sum1/d.data[N].data_length,'  accuracy_for_0: ',acc_sum0/d.data[N].data_length)
 
-
-
-
-
-
+    if(i%100==0):
+        rnn_model.save()
 
 
 """
