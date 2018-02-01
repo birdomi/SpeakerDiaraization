@@ -9,7 +9,7 @@ from sklearn.preprocessing import MinMaxScaler
 time_windowSteps=80#*0.01s
 time_windowLength=4*time_windowSteps#*0.01s
 learning_rate=0.01
-batch_size=3000
+batch_size=1500
 test_rate=0.7
 threshold=0.25
 check_range=24
@@ -186,9 +186,10 @@ class Time_liner(object):
 
 
 class mfcc_label_data():
-    mfcc_data=[]
-    label_data=[]
-    data_length=0
+    def __init__(self):
+        self.mfcc_data=[]
+        self.label_data=[]
+        self.data_length=0
     
 class Data(object):
     data={
@@ -269,18 +270,15 @@ class Data(object):
 
     def Load_Data(self,mfccpath,labelpath,dataname):
         mfcc=self.Mfcc(mfccpath)
-        print(mfcc)
         label=self.Labeling(labelpath)        
 
         length=len(label)
         number_batch=(int)(length/batch_size)
-        print(dataname)
-
+        
         for i in range(number_batch):
             self.data[dataname].mfcc_data.append(mfcc[i*batch_size:(i+1)*batch_size])
             self.data[dataname].label_data.append(label[i*batch_size:(i+1)*batch_size])
             self.data[dataname].data_length+=1
-            print(self.data[dataname].mfcc_data[i])
         self.data[dataname].mfcc_data.append(mfcc[number_batch*batch_size:])
         self.data[dataname].label_data.append(label[number_batch*batch_size:])
         self.data[dataname].data_length+=1
@@ -318,12 +316,13 @@ class RNN_model:
             self.Y_transcripts=tf.placeholder(tf.int32,[None,time_windowLength])
             self.keep_prob=tf.placeholder(tf.float32)
             self.data_length=tf.placeholder(tf.int32)
+            self.learning_rate=tf.placeholder(tf.float32)
 
             
             
-            layer1_cell=tf.contrib.rnn.LSTMCell(num_units=layer1,activation=tf.nn.tanh,initializer=tf.contrib.layers.xavier_initializer())
+            layer1_cell=tf.contrib.rnn.LSTMCell(num_units=layer1,activation=tf.nn.relu,initializer=tf.contrib.layers.xavier_initializer())
             layer1_cell=tf.contrib.rnn.DropoutWrapper(layer1_cell,self.keep_prob,self.keep_prob)
-            layer4_cell=tf.contrib.rnn.LSTMCell(num_units=layer4,activation=tf.nn.tanh,initializer=tf.contrib.layers.xavier_initializer())
+            layer4_cell=tf.contrib.rnn.LSTMCell(num_units=layer4,activation=tf.nn.relu,initializer=tf.contrib.layers.xavier_initializer())
             layer4_cell=tf.contrib.rnn.DropoutWrapper(layer4_cell,self.keep_prob,self.keep_prob)
 
             multi_cell=tf.contrib.rnn.MultiRNNCell([layer1_cell,layer4_cell])
@@ -334,12 +333,12 @@ class RNN_model:
                         
             W1=tf.get_variable('W1',[self.layer_input,self.layer1],tf.float32,tf.contrib.layers.xavier_initializer())
             b1=tf.Variable(tf.random_normal([self.layer1]))
-            L1=tf.nn.tanh(tf.matmul(fc_inputs,W1)+b1)
+            L1=tf.nn.relu(tf.matmul(fc_inputs,W1)+b1)
             L1=tf.nn.dropout(L1,self.keep_prob)
 
             W2=tf.get_variable('W2',[self.layer1,self.layer2],tf.float32,tf.contrib.layers.xavier_initializer())
             b2=tf.Variable(tf.random_normal([self.layer2]))
-            L2=tf.nn.tanh(tf.matmul(L1,W2)+b2)
+            L2=tf.nn.relu(tf.matmul(L1,W2)+b2)
             L2=tf.nn.dropout(L2,self.keep_prob)
 
             W3=tf.get_variable('W3',[self.layer2,no_output],tf.float32,tf.contrib.layers.xavier_initializer())
@@ -350,7 +349,7 @@ class RNN_model:
             
             
         self.cost=tf.reduce_mean(tf.nn.sparse_softmax_cross_entropy_with_logits(logits=self.outputs,labels=self.Y_transcripts))
-        self.optimizer=tf.train.AdamOptimizer(learning_rate=learning_rate).minimize(self.cost)
+        self.optimizer=tf.train.AdamOptimizer(learning_rate=self.learning_rate).minimize(self.cost)
 
     def show_cost(self,x,y,keep_prob=1.0):
         return self.sess.run(self.cost,feed_dict={self.X:x,self.Y_transcripts:y,self.keep_prob:keep_prob})
@@ -361,8 +360,8 @@ class RNN_model:
     def output(self,x_test,keep_prob=1.0):
         return self.sess.run(self.outputs,feed_dict={self.X:x_test,self.keep_prob:keep_prob})
 
-    def train(self,x_data,y_data,keep_prob=0.9):
-        return self.sess.run([self.cost,self.optimizer],feed_dict={self.X:x_data,self.Y_transcripts:y_data,self.keep_prob:keep_prob})
+    def train(self,x_data,y_data,learn,keep_prob=1.0):
+        return self.sess.run([self.cost,self.optimizer],feed_dict={self.X:x_data,self.Y_transcripts:y_data,self.learning_rate:learn,self.keep_prob:keep_prob})
 
     def accuracy(self,x_data,y_data):
         x_prediction=np.reshape(self.predict(x_data),[-1])
