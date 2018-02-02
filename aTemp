@@ -1,31 +1,182 @@
 import numpy as np
 import tensorflow as tf
-import scipy.io.wavfile as wav
-import python_speech_features
-import winsound
 import os
-from sklearn.preprocessing import MinMaxScaler
+import librosa
+import sklearn.preprocessing
 
+batch_size=1200
 class Data():
     def __init__(self):
-        mfcc=[]
-        label=[]
+        self._MFCC=[]
+        self._LABEL=[]
+        self.numberBatch=0
 
     def Get_Data(self,mfcc_path,label_path):
-        if(os.path.exists(mfcc_path)):
-            LodaData(self,mfcc_path,label_path)
+        """
+        for i in range(len(mfcc_path)):
+            if(mfcc_path[i]=='.'):
+                self.__index=i
+        self.__filename=mfcc_path[:self.__index]
+        if(os.path.exists(self.__filename+'.mfc')and os.path.exists(self.__filename+'.lab')):
+            self.LodaData(mfcc_path,label_path)
         else:
-            MakeData(self,mfcc_path,label_path)
+        """
+        self.MakeData(mfcc_path,label_path)
+        self._SaveData(mfcc_path,label_path)
             
     def LodaData(self,mfcc_path,label_path):
-        pass
-    
+        self.__mfcc=np.loadtxt(self.__filename+'.mfc')
+        self.__label=np.loadtxt(self.__filename+'.lab',int)
+        self.__mfcc=np.reshape(self.__mfcc,(-1,320,38))
+        self.__label=np.reshape(self.__label,(-1,320))
+        print(self.__mfcc)
+        print(self.__label)
+        
+        self.__batch_num=int(len(self.__mfcc)/batch_size)
+        for i in range(self.__batch_num):
+            self._MFCC.append(self.__mfcc[i*batch_size:(i+1)*batch_size])
+            self._LABEL.append(self.__label[i*batch_size:(i+1)*batch_size])
+            self.numberBatch+=1
+        self._MFCC.append(self.__mfcc[self.__batch_num*batch_size:])
+        self._LABEL.append(self.__label[self.__batch_num*batch_size:])
+        self.numberBatch+=1
+
     def MakeData(self,mfcc_path,label_path):
         pass
 
+    def _SaveData(self,mfcc_path,label_path):
+        self.__mfcc=self._MFCC[0]
+        self.__label=self._LABEL[0]
+
+        for i in range(1,self.numberBatch):
+            self.__mfcc=np.append(self.__mfcc,self._MFCC[i])
+            self.__label=np.append(self.__label,self._LABEL[i])
+        print(self.__mfcc.shape,self.__label.shape)
+
+        for i in range(len(mfcc_path)):
+            if(mfcc_path[i]=='.'):
+                self.__index=i
+        np.savetxt(mfcc_path[:self.__index]+'.mfc',self.__mfcc,delimiter=' ')
+        np.savetxt(mfcc_path[:self.__index]+'.lab',self.__label,delimiter= ' ')
+
+
+
 class ICSI_Data(Data):
     def MakeData(self, mfcc_path, label_path):
+        self.__ExtractMFCC(mfcc_path)
+        self.__LabelMRT(label_path)
+
+    def __ExtractMFCC(self,mfcc_path):
+        time_windowSteps=80
+        time_windowSize=320
+
+        self.__audio,self.__sr=librosa.load(mfcc_path,sr=16000)
+        self.__mfcc=librosa.feature.mfcc(self.__audio,self.__sr,n_mfcc=12,hop_length=int(self.__sr/100), n_fft=int(self.__sr/40))
+
+        self.__mfcc1=librosa.feature.delta(self.__mfcc)
+        self.__mfcc1_energy=librosa.feature.rmse(S=self.__mfcc1,hop_length=int(self.__sr/100), n_fft=int(self.__sr/40))
+        self.__mfcc1=np.append(self.__mfcc1,self.__mfcc1_energy,axis=0)
+
+        self.__mfcc2=librosa.feature.delta(self.__mfcc,order=2)
+        self.__mfcc2_energy=librosa.feature.rmse(S=self.__mfcc2,hop_length=int(self.__sr/100), n_fft=int(self.__sr/40))
+        self.__mfcc2=np.append(self.__mfcc2,self.__mfcc2_energy,axis=0)
+
+        self.__mfcc=np.append(self.__mfcc,self.__mfcc1,axis=0)
+        self.__mfcc=np.append(self.__mfcc,self.__mfcc2,axis=0)
+        self.__Tmfcc=np.transpose(self.__mfcc,(1,0))
+
+        self.__Tmfcc=sklearn.preprocessing.scale(self.__Tmfcc)
+
+        self.data_length=int(len(self.__Tmfcc)/time_windowSteps)
+        self.num_seq=self.data_length-4
+
+        self.__tmp=[]
+        for i in range(self.num_seq):
+            self.__tempSequence=self.__Tmfcc[i*time_windowSteps:(i+4)*time_windowSteps]
+            self.__tmp.append(self.__tempSequence)
+        self.__tmp=np.reshape(self.__tmp,(-1,time_windowSize,38))  
+        print(self.__tmp.shape)
         
+        self.__batch_num=int(len(self.__tmp)/batch_size)
+        for i in range(self.__batch_num):
+            self._MFCC.append(self.__tmp[i*batch_size:(i+1)*batch_size])
+            self.numberBatch+=1
+        self._MFCC.append(self.__tmp[self.__batch_num*batch_size:])
+        self.numberBatch+=1
+
+    
+    def __LabelMRT(self,label_path):     
+        label_weight=12
+        time_windowSteps=80
+        time_windowSize=320
+
+        self.__file=open(label_path,'r')
+        self.__lines=self.__file.readlines()
+        for self.__line in self.__lines:
+            if(self.__line[2:13]=='<Transcript'):
+                self.__startTime,self.__endTime=self.__Get_Data_fromMRT(self.__line)
+                break
+        self.__Label=[0]*int(self.__endTime*100)
+
+        for i in range(len(self.__lines)):
+            if(self.__lines[i][4:12]=='<Segment'):
+                self.__startTime,self.__endTime,self.__speakerName=self.__Get_Data_fromMRT(self.__lines[i])
+                if(self.__Is_VocalSound(self.__lines[i+1])):
+                    self.__Label[int(self.__startTime*100)]=1
+                    self.__Label[int(self.__endTime*100)]=1
+        self.__i=0
+        while self.__i<(len(self.__Label)):
+            if(self.__Label[self.__i]==1):
+                for j in range(1,label_weight+1):
+                    if(self.__i-j>=0):
+                        self.__Label[self.__i-j]=1
+                for j in range(1,label_weight+1):
+                    if(self.__i+j<len(self.__Label)):
+                        self.__Label[self.__i+j]=1
+                self.__i+=label_weight+1
+            else:
+                self.__i+=1
+        
+        self.num_seq=int(len(self.__Label)/time_windowSteps)-4
+
+        self.__tmp=[]
+        for i in range(self.num_seq):
+            self.__tempSequence=self.__Label[i*time_windowSteps:(i+4)*time_windowSteps]
+            self.__tmp.append(self.__tempSequence)
+        self.__tmp=np.reshape(self.__tmp,(-1,time_windowSize))
+        print(self.__tmp.shape)
+
+        self.__batch_num=int(len(self.__tmp)/batch_size)
+        for i in range(self.__batch_num):
+            self._LABEL.append(self.__tmp[i*batch_size:(i+1)*batch_size])
+        self._LABEL.append(self.__tmp[self.__batch_num*batch_size:])
+
+    def __Get_Data_fromMRT(self,line):
+        self.__dataIndex=[]
+        for i in range(len(line)):
+            if(line[i]=='"'):
+                self.__dataIndex.append(i)
+
+        for i in range(len(self.__dataIndex)):
+            if(i%2==0):
+                self.__dataIndex[i]+=1
+
+        self.__startTime=float(line[self.__dataIndex[0]:self.__dataIndex[1]])
+        self.__endTime=float(line[self.__dataIndex[2]:self.__dataIndex[3]])
+        if(len(self.__dataIndex)>4):
+            self.__name=line[self.__dataIndex[4]:self.__dataIndex[5]]
+            return self.__startTime,self.__endTime,self.__name
+        return self.__startTime,self.__endTime
+
+    def __Is_VocalSound(self,line):
+        self.__Is_Vocal=True
+        for i in range(7):
+            if(line[i:i+2]=='<N'or line[i:i+2]=='<C'or line[i:i+2]=='<U'):
+                self.__Is_Vocal=False
+        return self.__Is_Vocal
+
+
+
 
 
 class Model():
