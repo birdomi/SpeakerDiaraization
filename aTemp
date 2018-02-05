@@ -11,7 +11,7 @@ class Data():
         self._LABEL=[]
         self.numberBatch=0
 
-    def Get_Data(self,mfcc_path,label_path):
+    def Get_Data(self,mfcc_path,label_path='None'):
         """
         for i in range(len(mfcc_path)):
             if(mfcc_path[i]=='.'):
@@ -44,29 +44,7 @@ class Data():
     def MakeData(self,mfcc_path,label_path):
         pass
 
-    def _SaveData(self,mfcc_path,label_path):
-        self.__mfcc=self._MFCC[0]
-        self.__label=self._LABEL[0]
-
-        for i in range(1,self.numberBatch):
-            self.__mfcc=np.append(self.__mfcc,self._MFCC[i])
-            self.__label=np.append(self.__label,self._LABEL[i])
-        print(self.__mfcc.shape,self.__label.shape)
-
-        for i in range(len(mfcc_path)):
-            if(mfcc_path[i]=='.'):
-                self.__index=i
-        np.savetxt(mfcc_path[:self.__index]+'.mfc',self.__mfcc,delimiter=' ')
-        np.savetxt(mfcc_path[:self.__index]+'.lab',self.__label,delimiter= ' ')
-
-
-
-class ICSI_Data(Data):
-    def MakeData(self, mfcc_path, label_path):
-        self.__ExtractMFCC(mfcc_path)
-        self.__LabelMRT(label_path)
-
-    def __ExtractMFCC(self,mfcc_path):
+    def _ExtractMFCC(self,mfcc_path):
         time_windowSteps=80
         time_windowSize=320
 
@@ -86,27 +64,21 @@ class ICSI_Data(Data):
         self.__Tmfcc=np.transpose(self.__mfcc,(1,0))
 
         self.__Tmfcc=sklearn.preprocessing.scale(self.__Tmfcc)
+        
+        time_windowSteps=80
+        time_windowSize=320
 
-        self.data_length=int(len(self.__Tmfcc)/time_windowSteps)
-        self.num_seq=self.data_length-4
+        self.__data_length=int(len(self.__Tmfcc)/time_windowSteps)
+        self.__num_seq=self.__data_length-4
 
         self.__tmp=[]
-        for i in range(self.num_seq):
+        for i in range(self.__num_seq):
             self.__tempSequence=self.__Tmfcc[i*time_windowSteps:(i+4)*time_windowSteps]
             self.__tmp.append(self.__tempSequence)
-        self.__tmp=np.reshape(self.__tmp,(-1,time_windowSize,38))  
-        print(self.__tmp.shape)
-        
-        self.__batch_num=int(len(self.__tmp)/batch_size)
-        for i in range(self.__batch_num):
-            self._MFCC.append(self.__tmp[i*batch_size:(i+1)*batch_size])
-            self.numberBatch+=1
-        self._MFCC.append(self.__tmp[self.__batch_num*batch_size:])
-        self.numberBatch+=1
-
+        self.__tmp=np.reshape(self.__tmp,(-1,time_windowSize,38))
+        return self.__tmp
     
-    def __LabelMRT(self,label_path):     
-        label_weight=12
+    def _LabelMRT(self,label_path,label_weight):
         time_windowSteps=80
         time_windowSize=320
 
@@ -116,7 +88,7 @@ class ICSI_Data(Data):
             if(self.__line[2:13]=='<Transcript'):
                 self.__startTime,self.__endTime=self.__Get_Data_fromMRT(self.__line)
                 break
-        self.__Label=[0]*int(self.__endTime*100+1)
+        self.__Label=[0]*int(self.__endTime*100)
 
         for i in range(len(self.__lines)):
             if(self.__lines[i][4:12]=='<Segment'):
@@ -136,20 +108,8 @@ class ICSI_Data(Data):
                 self.__i+=label_weight+1
             else:
                 self.__i+=1
+        return self.__Label    
         
-        self.num_seq=int(len(self.__Label)/time_windowSteps)-4
-
-        self.__tmp=[]
-        for i in range(self.num_seq):
-            self.__tempSequence=self.__Label[i*time_windowSteps:(i+4)*time_windowSteps]
-            self.__tmp.append(self.__tempSequence)
-        self.__tmp=np.reshape(self.__tmp,(-1,time_windowSize))
-        print(self.__tmp.shape)
-
-        self.__batch_num=int(len(self.__tmp)/batch_size)
-        for i in range(self.__batch_num):
-            self._LABEL.append(self.__tmp[i*batch_size:(i+1)*batch_size])
-        self._LABEL.append(self.__tmp[self.__batch_num*batch_size:])
 
     def __Get_Data_fromMRT(self,line):
         self.__dataIndex=[]
@@ -175,8 +135,100 @@ class ICSI_Data(Data):
                 self.__Is_Vocal=False
         return self.__Is_Vocal
 
+    def _SaveData(self,mfcc_path,label_path):
+        self.__mfcc=self._MFCC[0]
+        self.__label=self._LABEL[0]
+
+        for i in range(1,self.numberBatch):
+            self.__mfcc=np.append(self.__mfcc,self._MFCC[i])
+            self.__label=np.append(self.__label,self._LABEL[i])
+        print(self.__mfcc.shape,self.__label.shape)
+
+        for i in range(len(mfcc_path)):
+            if(mfcc_path[i]=='.'):
+                self.__index=i
+        np.savetxt(mfcc_path[:self.__index]+'.mfc',self.__mfcc,delimiter=' ')
+        np.savetxt(mfcc_path[:self.__index]+'.lab',self.__label,delimiter= ' ')
 
 
+
+class ICSI_Data(Data):
+    def MakeData(self, mfcc_path, label_path):
+        self.__BatchMFCC(mfcc_path)
+        self.__BatchMRT(label_path,10)
+
+    def __BatchMFCC(self,mfcc_path):
+        self.__tmp=self._ExtractMFCC(mfcc_path)
+        print(self.__tmp.shape)
+
+        self.__batch_num=int(len(self.__tmp)/batch_size)
+        for i in range(self.__batch_num):
+            self._MFCC.append(self.__tmp[i*batch_size:(i+1)*batch_size])
+            self.numberBatch+=1
+        self._MFCC.append(self.__tmp[self.__batch_num*batch_size:])
+        self.numberBatch+=1
+
+    
+    def __BatchMRT(self,label_path,label_weight):        
+        time_windowSteps=80
+        time_windowSize=320
+        self.__Label=self._LabelMRT(label_path,label_weight)
+        self.num_seq=int(len(self.__Label)/time_windowSteps)-4
+
+        self.__tmp=[]
+        for i in range(self.num_seq):
+            self.__tempSequence=self.__Label[i*time_windowSteps:(i+4)*time_windowSteps]
+            self.__tmp.append(self.__tempSequence)
+        self.__tmp=np.reshape(self.__tmp,(-1,time_windowSize))
+        print(self.__tmp.shape)       
+
+        self.__batch_num=int(len(self.__tmp)/batch_size)
+        for i in range(self.__batch_num):
+            self._LABEL.append(self.__tmp[i*batch_size:(i+1)*batch_size])
+        self._LABEL.append(self.__tmp[self.__batch_num*batch_size:])
+
+    
+
+class Data_time(Data):
+    def MakeData(self, mfcc_path, label_path):
+        if(label_path=='None'):
+            self._MFCC=self._ExtractMFCC(mfcc_path)
+        else:
+            self._MFCC=self._ExtractMFCC(mfcc_path)
+            self._LABEL=self._LabelMRT(label_path,0)
+
+    def Time_MFCC(self,rnn):        
+        self.__size=30
+        self.__step=10
+        self.__tmp=rnn.Make_Result(self._MFCC)
+        print(len(self.__tmp))
+        self.__num=int(len(self.__tmp)/self.__step-2)
+
+        self.__tmpmfcc=[]
+        for i in range(self.__num):
+            self.__tmpmfcc.append(self.__tmp[i*self.__step:i*self.__step+self.__size])
+        self._MFCC=np.reshape(self.__tmpmfcc,(-1,30))
+        print(self._MFCC.shape)
+
+    def Time_LABEL(self):
+        self.__tmp=np.reshape(self._LABEL,(-1))        
+        self.__tmp=self.__tmp[:int(len(self.__tmp)/80-1)*80]
+        print(len(self.__tmp))
+        self.__length=int(len(self.__tmp)/10-1)
+        print(self.__length)
+        self.__tmplabel=[]
+        for i in range(1,self.__length):
+            self.__Is_1=False
+            for j in range(10):
+                if(self.__tmp[i*10+j]==1):
+                    self.__Is_1=True
+            if(self.__Is_1==True):
+                self.__tmplabel.append(1)
+            else:
+                self.__tmplabel.append(0)
+
+        self._LABEL=np.reshape(self.__tmplabel,(-1))
+        print(self._LABEL.shape)
 
 
 class Model():
@@ -188,19 +240,40 @@ class Model():
 
     def _build_net(self):
         pass
-
-    def Predict(self,x,keep_prob=1.0):
-        return self.sess.run(tf.argmax(self.Outputs(x),axis=2),feed_dict={self.X:x,self.keep_prob:keep_prob})
-
+    
     def Outputs(self,x,keep_prob=1.0):
         return self.sess.run(self.outputs,feed_dict={self.X:x,self.keep_prob:keep_prob})
 
     def Train(self,x,y,keep_prob=0.8):
         return self.sess.run([self.cost,self.optimizer],feed_dict={self.X:x,self.Y:y,self.keep_prob:keep_prob})
 
-    def Accuracy(self,x,y,keep_prob=1.0):
-        pass
-    
+    def Accuracy(self,x,y):
+        self.x_prediction=np.reshape(self.Outputs(x),[-1])
+        self.y_prediction=np.reshape(y,[-1])
+        
+        self.check_for_changePoint=0
+        self.check_for_falseAlarm=0
+        self.total_changePoint=0
+        self.total_non_changePoint=0
+        self.accuracy_changePoint=0.0
+        self.accuracy_non_changePoint=0.0
+        for i in range(len(self.y_prediction)):            
+            if(self.y_prediction[i]==1):
+                self.total_changePoint=self.total_changePoint+1
+                if(self.x_prediction[i]==1):
+                    self.check_for_changePoint=self.check_for_changePoint+1
+            else:
+                self.total_non_changePoint=self.total_non_changePoint+1
+                if(self.x_prediction[i]==0):
+                    self.check_for_falseAlarm=self.check_for_falseAlarm+1
+
+        if(self.total_changePoint!=0):
+            self.accuracy_changePoint=(float)(self.check_for_changePoint/self.total_changePoint)
+        if(self.total_non_changePoint!=0):
+            self.accuracy_non_changePoint=(float)(self.check_for_falseAlarm/self.total_non_changePoint)
+                
+        return self.accuracy_changePoint,self.accuracy_non_changePoint
+
     def Save(self):
         saver=tf.train.Saver()
         saver.save(self.sess, self.name+'/model')
@@ -246,68 +319,46 @@ class RNN_Model(Model):
 
         self.cost=tf.reduce_mean(tf.nn.sparse_softmax_cross_entropy_with_logits(logits=self.outputs,labels=self.Y))
         self.optimizer=tf.train.AdamOptimizer(learning_rate=self.learning_rate).minimize(self.cost)
-
-    def Accuracy(self,x,y):
-        x_prediction=np.reshape(self.Predict(x),[-1])
-        y_prediction=np.reshape(y,[-1])
-        print(len(x_prediction)," ",len(y_prediction))
         
-        check_for_changePoint=0
-        check_for_falseAlarm=0
-        total_changePoint=0
-        total_non_changePoint=0
-        accuracy_changePoint=0.0
-        accuracy_non_changePoint=0.0
-        for i in range(len(x_prediction)):            
-            if(y_prediction[i]==1):
-                total_changePoint=total_changePoint+1
-                if(x_prediction[i]==1):
-                    check_for_changePoint=check_for_changePoint+1
-            else:
-                total_non_changePoint=total_non_changePoint+1
-                if(x_prediction[i]==0):
-                    check_for_falseAlarm=check_for_falseAlarm+1
-
-        if(total_changePoint!=0):
-            accuracy_changePoint=(float)(check_for_changePoint/total_changePoint)
-        if(total_non_changePoint!=0):
-            accuracy_non_changePoint=(float)(check_for_falseAlarm/total_non_changePoint)
-                
-        return accuracy_changePoint,accuracy_non_changePoint
+        self.outputs=tf.argmax(self.outputs,axis=2)
+    
 
     def Make_Result(self,x_test,keep_prob=1.0):
-        result=np.reshape(self.predict(x_test),[-1])
+        self.result=np.reshape(self.Outputs(x_test),[-1])
 
-        Temp=[]
-        time=(int)(time_windowLength/time_windowSteps)
+        time_windowLength=320
+        time_windowSteps=80
+
+        self.Temp=[]
+        self.time=(int)(time_windowLength/time_windowSteps)
         
         for i in range(4):
             if(i==0):
                 for j in range(time_windowSteps):
-                    Temp.append(result[j])
+                    self.Temp.append(self.result[j])
             if(i==1):
                 for j in range(time_windowSteps,2*time_windowSteps):
                     index=j
-                    tmp_sum=0
+                    self.tmp_sum=0
                     for k in range(2):
-                        tmp_sum+=result[index+3*k*time_windowSteps]
-                    Temp.append(tmp_sum/2.0)
+                        self.tmp_sum+=self.result[index+3*k*time_windowSteps]
+                    self.Temp.append(self.tmp_sum/2.0)
             if(i==2):
                 for j in range(2*time_windowSteps,3*time_windowSteps):
                     index=j
-                    tmp_sum=0
+                    self.tmp_sum=0
                     for k in range(3):
-                        tmp_sum+=result[index+3*k*time_windowSteps]
-                    Temp.append(tmp_sum/3.0)
+                        self.tmp_sum+=self.result[index+3*k*time_windowSteps]
+                    self.Temp.append(self.tmp_sum/3.0)
 
         for i in range(len(x_test)-3):
             step=(i+1)*time_windowLength
             for j in range(step-time_windowSteps,step):
                 index=j
-                tmp_sum=0
+                self.tmp_sum=0
                 for k in range(4):
-                    tmp_sum+=result[index+3*k*time_windowSteps]
-                Temp.append(tmp_sum/4.0)
+                    self.tmp_sum+=self.result[index+3*k*time_windowSteps]
+                self.Temp.append(self.tmp_sum/4.0)
 
         for i in range(len(x_test)-3,len(x_test)):
             step=(i+1)*time_windowLength
@@ -315,21 +366,60 @@ class RNN_Model(Model):
             if(i==len(x_test)-3):
                for j in range(step-time_windowSteps,step):
                    index=j
-                   tmp_sum=0
+                   self.tmp_sum=0
                    for k in range(3):
-                       tmp_sum+=result[index+3*k*time_windowSteps]
-                   Temp.append(tmp_sum/3.0)
+                       self.tmp_sum+=self.result[index+3*k*time_windowSteps]
+                   self.Temp.append(self.tmp_sum/3.0)
             if(i==len(x_test)-2):
                 for j in range(step-time_windowSteps,step):
                    index=j
-                   tmp_sum=0
+                   self.tmp_sum=0
                    for k in range(2):
-                       tmp_sum+=result[index+3*k*time_windowSteps]
-                   Temp.append(tmp_sum/2.0)
+                       self.tmp_sum+=self.result[index+3*k*time_windowSteps]
+                   self.Temp.append(self.tmp_sum/2.0)
             if(i==len(x_test)-1):
                 step=(i+1)*time_windowLength
                 for j in range(step-time_windowSteps,step):
-                    Temp.append(result[j])
-        return Temp
+                    self.Temp.append(self.result[j])
+        return self.Temp
+
+
+class FC_Model_for_Find_Time(Model):
+    def _build_net(self):
+        self.layer1=28
+        self.layer2=25
+        self.layer3=22
+        self.layer4=18
+        self.layer5=15
+        self.layer6=12
+        self.layer7=2
+
+        self.X=tf.placeholder(tf.float32,[None,30])
+        self.Y=tf.placeholder(tf.int32,[None])
+        self.keep_prob=tf.placeholder(tf.float32)
+
+        self.FC1=tf.contrib.layers.fully_connected(self.X,self.layer1,activation_fn=None)
+        self.FC1=tf.nn.dropout(self.FC1,self.keep_prob)
+        self.FC2=tf.contrib.layers.fully_connected(self.FC1,self.layer2,activation_fn=None)
+        self.FC2=tf.nn.dropout(self.FC2,self.keep_prob)
+        self.FC6=tf.contrib.layers.fully_connected(self.FC2,self.layer6,activation_fn=None)
+        self.FC6=tf.nn.dropout(self.FC6,self.keep_prob)
+        self.FC7=tf.contrib.layers.fully_connected(self.FC6,self.layer7,activation_fn=None)
+
+        self.outputs=self.FC7
+
+        self.cost=tf.reduce_mean(tf.nn.sparse_softmax_cross_entropy_with_logits(logits=self.outputs,labels=self.Y))
+        self.optimizer=tf.train.AdamOptimizer(learning_rate=self.learning_rate).minimize(self.cost)
+        
+        self.outputs=tf.argmax(self.outputs,axis=1)
+
+    def Outputs(self, x, keep_prob = 1.0):
+        self.x_outputs=np.reshape(self.sess.run(self.outputs,feed_dict={self.X:x,self.keep_prob:keep_prob}),(-1))
+        for i in range(len(self.x_outputs)):
+            if(self.x_outputs[i]<0.1):
+                self.x_outputs[i]=0
+            else:
+                self.x_outputs[i]=1
+        return self.x_outputs
 
 
