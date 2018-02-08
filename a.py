@@ -1,484 +1,316 @@
 import numpy as np
 import tensorflow as tf
-import scipy.io.wavfile as wav
-import python_speech_features
-import winsound
-from sklearn.preprocessing import MinMaxScaler
+import os
+import librosa
+import sklearn.preprocessing
 
-#config
-time_windowSteps=80#*0.01s
-time_windowLength=4*time_windowSteps#*0.01s
-learning_rate=0.01
 batch_size=1500
-test_rate=0.7
-threshold=0.25
-check_range=24
-#
-
-vec_per_frame=39
-no_output=2
-beep_frequency=1500
-beep_duration=2000
-
-def beep():
-    winsound.Beep(beep_frequency,beep_duration)
-
-class Time_liner(object):
-    X_data=None
-    Y_data=None
-
-    def Label_Time(self,label_text):
-        s=np.loadtxt('timeLabel/'+label_text)    
-        len80=(int)(len(s)/80)
-        s=s[0:(len80-1)*80]
-        
-        length=(int)(len(s)/50)
-        result=[]
-        for i in range(length):
-            step=50*i
-            Label={
-                '1':False,
-                '2':False,
-                '3':False,
-                '4':False,
-                '5':False
-                }
-            for i in range(step,step+10):
-                if(s[i]==1):Label['1']=True
-            for i in range(step+10,step+20):
-                if(s[i]==1):Label['2']=True
-            for i in range(step+20,step+30):
-                if(s[i]==1):Label['3']=True
-            for i in range(step+30,step+40):
-                if(s[i]==1):Label['4']=True
-            for i in range(step+40,step+50):
-                if(s[i]==1):Label['5']=True
-            
-            alreadyAppend=False
-            for check in range(1,5):
-                if(Label[str(check)]==True):
-                    if(alreadyAppend==False):
-                        result.append(check)
-                        alreadyAppend=True
-            if(alreadyAppend==False):
-                result.append(0)
-        result=result[0:length]
-        self.Y_data=np.reshape(result,(-1))
-        return result
-
-    def Line_Predict(self,RNN_result):
-        length=(int)(len(RNN_result)/50)
-        tmp=RNN_result[0:length*50]
-        self.X_data=np.reshape(tmp,(-1,50))
-        return self.X_data
-
-    def __init__(self, sess,name,):
-        self.sess=sess
-        self.name=name
-        self._build_net()
-
-    def _build_net(self):
-        with tf.variable_scope(self.name):
-            self.layer_input=50
-            self.layer1=150
-            self.layer2=150
-            self.layer3=100
-            self.layer4=100
-            self.layer5=50
-            self.layer6=50
-            self.layer_output=6
-                        
-            self.X=tf.placeholder(tf.float32,[None,self.layer_input],'X')
-            self.Y=tf.placeholder(tf.int32,[None],'Y')
-            self.Y_onehot=tf.one_hot(self.Y,self.layer_output,dtype=tf.int64)
-            self.keep_prob=tf.placeholder(tf.float32)
-                        
-            W1=tf.get_variable('W1',[self.layer_input,self.layer1],tf.float32,tf.contrib.layers.xavier_initializer())
-            b1=tf.Variable(tf.random_normal([self.layer1]))
-            L1=tf.nn.relu(tf.matmul(self.X,W1)+b1)
-            L1=tf.nn.dropout(L1,self.keep_prob)
-            
-            W2=tf.get_variable('W2',[self.layer1,self.layer2],tf.float32,tf.contrib.layers.xavier_initializer())
-            b2=tf.Variable(tf.random_normal([self.layer2]))
-            L2=tf.nn.relu(tf.matmul(L1,W2)+b2)
-            L2=tf.nn.dropout(L2,self.keep_prob)
-            
-            W3=tf.get_variable('W3',[self.layer2,self.layer3],tf.float32,tf.contrib.layers.xavier_initializer())
-            b3=tf.Variable(tf.random_normal([self.layer3]))
-            L3=tf.nn.relu(tf.matmul(L2,W3)+b3)
-            L3=tf.nn.dropout(L3,self.keep_prob)
-            
-            W4=tf.get_variable('W4',[self.layer3,self.layer4],tf.float32,tf.contrib.layers.xavier_initializer())
-            b4=tf.Variable(tf.random_normal([self.layer4]))
-            L4=tf.nn.relu(tf.matmul(L3,W4)+b4)
-            L4=tf.nn.dropout(L4,self.keep_prob)
-            
-            W5=tf.get_variable('W5',[self.layer4,self.layer5],tf.float32,tf.contrib.layers.xavier_initializer())
-            b5=tf.Variable(tf.random_normal([self.layer5]))
-            L5=tf.nn.relu(tf.matmul(L4,W5)+b5)
-            L5=tf.nn.dropout(L5,self.keep_prob)
-
-            W6=tf.get_variable('W6',[self.layer5,self.layer6],tf.float32,tf.contrib.layers.xavier_initializer())
-            b6=tf.Variable(tf.random_normal([self.layer6]))
-            L6=tf.nn.relu(tf.matmul(L5,W6)+b6)
-            L6=tf.nn.dropout(L6,self.keep_prob)
-
-            W7=tf.get_variable('W7',[self.layer6,self.layer_output],tf.float32,tf.contrib.layers.xavier_initializer())
-            b7=tf.Variable(tf.random_normal([self.layer_output]))
-            L7=(tf.matmul(L6,W7)+b7)
-        
-        self.cost=tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(logits=L7,labels=self.Y_onehot))
-        self.optimizer=tf.train.AdamOptimizer(learning_rate=0.01).minimize(self.cost)
-        self.out=tf.argmax(L7,axis=1,output_type=tf.int32)
-        self.correct=tf.equal(self.out,self.Y)
-        self.acc=tf.reduce_mean(tf.cast(self.correct,tf.float32))
-    
-    def train(self,x,y,keep_prob=0.9):
-        return self.sess.run([self.cost,self.optimizer],feed_dict={self.X:x,self.Y:y,self.keep_prob:keep_prob})
-    def output(self,x,keep_prob=1.0):
-        return self.sess.run(self.out,feed_dict={self.X:x,self.keep_prob:keep_prob})
-    def accuracy(self,x,y,keep_prob=1.0):
-        x_prediction=np.reshape(self.output(x),[-1])
-        y_prediction=np.reshape(y,[-1])
-        
-        check_for_changePoint=0
-        check_for_falseAlarm=0
-        total_changePoint=0
-        total_non_changePoint=0                
-        accuracy_changePoint=0.0
-        accuracy_non_changePoint=0.0
-        for i in range(self.sess.run(tf.size(y_prediction))):            
-            if(y_prediction[i]==0):
-                total_non_changePoint=total_non_changePoint+1
-                if(x_prediction[i]==0):
-                    check_for_falseAlarm=check_for_falseAlarm+1
-            else:
-                total_changePoint=total_changePoint+1
-                if(x_prediction[i]==y_prediction[i]):
-                    check_for_changePoint=check_for_changePoint+1
-
-        if(total_changePoint!=0):
-            accuracy_changePoint=(float)(check_for_changePoint/total_changePoint)
-        if(total_non_changePoint!=0):
-            accuracy_non_changePoint=(float)(check_for_falseAlarm/total_non_changePoint)
-                
-        print('ChangePoint Number: ',total_changePoint,' Correct: ',check_for_changePoint)
-        print('NoneChangePoint Number: ',total_non_changePoint,' Correct: ',check_for_falseAlarm)
-        return accuracy_changePoint,accuracy_non_changePoint
-    def SaveModel(self):        
-        saver=tf.train.Saver()
-        saver.save(self.sess,'timeLinerModel/model')
-    def RestoreModel(self):        
-        saver=tf.train.Saver()
-        saver.restore(self.sess,'timeLinerModel/model')
-
-    def Save_Result(self,x,filename,keep_prob=1.0):
-        outputArray=self.output(x)
-
-        s=[]
-        for i in range(len(outputArray)):
-            for j in range(1,6):
-                if(outputArray[i]==j):
-                    s.append(str(-0.05+i*0.5+j*0.1))
-        np.savetxt(filename+'.bdr',s,fmt='%s',delimiter='\n')
-
-
-
-
-class mfcc_label_data():
+windowstep=50
+windowmul=6
+windowsize=windowstep*windowmul
+labelLength=int(windowsize/3)
+class Data():
     def __init__(self):
-        self.mfcc_data=[]
-        self.label_data=[]
-        self.data_length=0
-    
-class Data(object):
-    data={
-        0:mfcc_label_data(),
-        1:mfcc_label_data(),
-        2:mfcc_label_data(),
-        3:mfcc_label_data(),
-        4:mfcc_label_data(),
-        5:mfcc_label_data(),
-        6:mfcc_label_data(),
-        7:mfcc_label_data(),
-        8:mfcc_label_data(),
-        9:mfcc_label_data(),
-        10:mfcc_label_data(),
-        11:mfcc_label_data(),
-        12:mfcc_label_data(),
-        13:mfcc_label_data(),
-        14:mfcc_label_data(),
-        15:mfcc_label_data()
-    }
+        self._MFCC=[]
+        self._LABEL=[]
+        self.numberBatch=0
 
-    def Mfcc(self,s):        
-        sig,f=wav.read('Wave/'+s)
-        mfcc=python_speech_features.base.mfcc(f,sig)
-        delta=python_speech_features.base.delta(mfcc,1)
-        ddelta=python_speech_features.base.delta(delta,1)
-        
-
-        Data_length=(int)(len(mfcc)/time_windowSteps)
-        tmp_data_for_X=[]
-        
-        seq=(int)(time_windowLength/time_windowSteps)
-        num_seq=Data_length-seq
-        for i in range(Data_length):
-            tmp_data_for_X.append(Data.Return_a_Sequence_data(mfcc,i*time_windowSteps))
-            tmp_data_for_X.append(Data.Return_a_Sequence_data(delta,i*time_windowSteps))
-            tmp_data_for_X.append(Data.Return_a_Sequence_data(ddelta,i*time_windowSteps))
-        tmp_data_for_X=np.reshape(tmp_data_for_X,(-1,39))
+    def Get_Data(self,mfcc_path,label_path='None'):
         """
-        scaler=MinMaxScaler()
-        scaler.fit(tmp_data_for_X)
-        tmp_data_for_X=scaler.transform(tmp_data_for_X)
-       """
-        tmp_data_for_X=np.reshape(tmp_data_for_X,(-1,time_windowSteps,vec_per_frame))
-        tmp_seq=[]
-        for i in range(num_seq):
-            for j in range(seq):
-                tmp_seq.append(tmp_data_for_X[i+j])
+        for i in range(len(mfcc_path)):
+            if(mfcc_path[i]=='.'):
+                self.__index=i
+        self.__filename=mfcc_path[:self.__index]
+        if(os.path.exists(self.__filename+'.mfc')and os.path.exists(self.__filename+'.lab')):
+            self.LodaData(mfcc_path,label_path)
+        else:
+        """
+        self.MakeData(mfcc_path,label_path)
+        #self._SaveData(mfcc_path,label_path)
+            
+    def LodaData(self,mfcc_path,label_path):
+        self.__mfcc=np.loadtxt(self.__filename+'.mfc')
+        self.__label=np.loadtxt(self.__filename+'.lab',int)
+        self.__mfcc=np.reshape(self.__mfcc,(-1,320,38))
+        self.__label=np.reshape(self.__label,(-1,320))
+        print(self.__mfcc)
+        print(self.__label)
         
-        tmp_seq=np.reshape(tmp_seq,(-1,time_windowLength,vec_per_frame))        
-        return tmp_seq
+        self.__batch_num=int(len(self.__mfcc)/batch_size)
+        for i in range(self.__batch_num):
+            self._MFCC.append(self.__mfcc[i*batch_size:(i+1)*batch_size])
+            self._LABEL.append(self.__label[i*batch_size:(i+1)*batch_size])
+            self.numberBatch+=1
+        self._MFCC.append(self.__mfcc[self.__batch_num*batch_size:])
+        self._LABEL.append(self.__label[self.__batch_num*batch_size:])
+        self.numberBatch+=1
+
+    def MakeData(self,mfcc_path,label_path):
+        pass
+
+    def _ExtractMFCC(self,mfcc_path):
+        self.__audio,self.__sr=librosa.load(mfcc_path,sr=16000)
+        self.__mfcc=librosa.feature.mfcc(self.__audio,self.__sr,n_mfcc=12,hop_length=int(self.__sr/100), n_fft=int(self.__sr/40))
+
+        self.__mfcc1=librosa.feature.delta(self.__mfcc)
+        self.__mfcc1_energy=librosa.feature.rmse(S=self.__mfcc1,hop_length=int(self.__sr/100), n_fft=int(self.__sr/40))
+        self.__mfcc1=np.append(self.__mfcc1,self.__mfcc1_energy,axis=0)
+
+        self.__mfcc2=librosa.feature.delta(self.__mfcc,order=2)
+        self.__mfcc2_energy=librosa.feature.rmse(S=self.__mfcc2,hop_length=int(self.__sr/100), n_fft=int(self.__sr/40))
+        self.__mfcc2=np.append(self.__mfcc2,self.__mfcc2_energy,axis=0)
+
+        self.__mfcc=np.append(self.__mfcc,self.__mfcc1,axis=0)
+        self.__mfcc=np.append(self.__mfcc,self.__mfcc2,axis=0)
+        self.__Tmfcc=np.transpose(self.__mfcc,(1,0))
+        print(len(self.__Tmfcc))
+        self.__Tmfcc=sklearn.preprocessing.normalize(self.__Tmfcc)
+        
+        self.__data_length=int(len(self.__Tmfcc)/windowstep)
+        self.__num_seq=self.__data_length-windowmul+1
+        
+        self.__tmp=[]
+        for i in range(self.__num_seq):
+            self.__tempSequence=self.__Tmfcc[i*windowstep:(i+windowmul)*windowstep]
+            self.__tmp.append(self.__tempSequence)
+        self.__tmp=np.reshape(self.__tmp,(-1,windowsize,38))
+        return self.__tmp
     
-
-    def Labeling(self,s):
-        tmp=np.loadtxt('Label/'+s,dtype=int)
-        Data_length=(int)(len(tmp)/time_windowSteps)
-                
-        seq=(int)(time_windowLength/time_windowSteps)
-        num_seq=Data_length-seq
-
-        tmp_data_for_Y=[]
-        for i in range(Data_length):
-            tmp_data_for_Y.append(Data.Return_a_Sequence_data(tmp,i*time_windowSteps))        
-        tmp_data_for_Y=np.reshape(tmp_data_for_Y,(-1,time_windowSteps))
-
-        dataY=[]
-        for i in range(num_seq):
-            for j in range(seq):
-                dataY.append(tmp_data_for_Y[i+j])
-        dataY=np.reshape(dataY,(-1,time_windowLength))
-
-        return dataY 
-   
-    def Return_a_Sequence_data(array,index):
-        temp=array[index:(index+time_windowSteps)]
-        temp=np.reshape(temp,(-1))
-        return temp     
-
-    def Load_Data(self,mfccpath,labelpath,dataname):
-        mfcc=self.Mfcc(mfccpath)
-        label=self.Labeling(labelpath)        
-
-        length=len(label)
-        number_batch=(int)(length/batch_size)
-        
-        for i in range(number_batch):
-            self.data[dataname].mfcc_data.append(mfcc[i*batch_size:(i+1)*batch_size])
-            self.data[dataname].label_data.append(label[i*batch_size:(i+1)*batch_size])
-            self.data[dataname].data_length+=1
-        self.data[dataname].mfcc_data.append(mfcc[number_batch*batch_size:])
-        self.data[dataname].label_data.append(label[number_batch*batch_size:])
-        self.data[dataname].data_length+=1
-        print(self.data[dataname].mfcc_data[number_batch].shape)
+    def _LabelMRT(self,label_path):
+        self.__file=open(label_path,'r')
+        self.__lines=self.__file.readlines()
+        for self.__line in self.__lines:
+            if(self.__line[2:13]=='<Transcript'):
+                self.__startTime,self.__endTime=self.__Get_Data_fromMRT(self.__line)
+                break
+        self.__Label=[0]*int(self.__endTime*100+1)
+        for i in range(len(self.__lines)):
+            if(self.__lines[i][4:12]=='<Segment'):
+                self.__startTime,self.__endTime,self.__speakerName=self.__Get_Data_fromMRT(self.__lines[i])
+                if(self.__Is_VocalSound(self.__lines[i+1])):
+                    self.__Label[int(self.__startTime*100)]=1
+                    self.__Label[int(self.__endTime*100)]=1       
+        return self.__Label    
         
 
-class file(object):
-    def Return_Num_1(array):
-        count=0
-        for i in range(len(array)):
-            if(array[i]==1):
-                count=count+1
-        return count
+    def __Get_Data_fromMRT(self,line):
+        self.__dataIndex=[]
+        for i in range(len(line)):
+            if(line[i]=='"'):
+                self.__dataIndex.append(i)
 
-class RNN_model:
+        for i in range(len(self.__dataIndex)):
+            if(i%2==0):
+                self.__dataIndex[i]+=1
+
+        self.__startTime=float(line[self.__dataIndex[0]:self.__dataIndex[1]])
+        self.__endTime=float(line[self.__dataIndex[2]:self.__dataIndex[3]])
+        if(len(self.__dataIndex)>4):
+            self.__name=line[self.__dataIndex[4]:self.__dataIndex[5]]
+            return self.__startTime,self.__endTime,self.__name
+        return self.__startTime,self.__endTime
+
+    def __Is_VocalSound(self,line):
+        self.__Is_Vocal=True
+        for i in range(7):
+            if(line[i:i+2]=='<N'or line[i:i+2]=='<C'or line[i:i+2]=='<U'):
+                self.__Is_Vocal=False
+        return self.__Is_Vocal
+
+    def _SaveData(self,mfcc_path,label_path):
+        self.__mfcc=self._MFCC[0]
+        self.__label=self._LABEL[0]
+
+        for i in range(1,self.numberBatch):
+            self.__mfcc=np.append(self.__mfcc,self._MFCC[i])
+            self.__label=np.append(self.__label,self._LABEL[i])
+        print(self.__mfcc.shape,self.__label.shape)
+
+        for i in range(len(mfcc_path)):
+            if(mfcc_path[i]=='.'):
+                self.__index=i
+        np.savetxt(mfcc_path[:self.__index]+'.mfc',self.__mfcc,delimiter=' ')
+        np.savetxt(mfcc_path[:self.__index]+'.lab',self.__label,delimiter= ' ')
+
+
+
+class ICSI_Data(Data):
+    def MakeData(self, mfcc_path, label_path):
+        self.__BatchMFCC(mfcc_path)
+        self.__BatchMRT(label_path)
+
+    def __BatchMFCC(self,mfcc_path):
+        self.__tmp=self._ExtractMFCC(mfcc_path)
+        print(self.__tmp.shape)
+
+        self.__batch_num=int(len(self.__tmp)/batch_size)
+        for i in range(self.__batch_num):
+            self._MFCC.append(self.__tmp[i*batch_size:(i+1)*batch_size])
+            self.numberBatch+=1
+        self._MFCC.append(self.__tmp[self.__batch_num*batch_size:])
+        self.numberBatch+=1
+
     
-    def __init__(self, sess,name,):
+    def __BatchMRT(self,label_path):        
+        #
+        self.__Label=self._LabelMRT(label_path)
+        print(len(self.__Label))
+
+        self.__data_length=int(len(self.__Label)/windowstep)
+        self.__num_seq=self.__data_length-windowmul+1
+        self.__tmp=[]
+        for i in range(self.__num_seq):
+            self.__tempSequence=self.__Label[i*windowstep:(i+windowmul)*windowstep]
+            self.__tmp.append(self.__tempSequence)
+        self.__tmp=np.reshape(self.__tmp,(-1))
+        self.__label=[]
+        for i in range(int(len(self.__tmp)/labelLength)):
+            self.__check=False
+            for j in range(i*labelLength,(i+1)*labelLength):
+                if(self.__tmp[j]==1):
+                    self.__check=True
+            if(self.__check):
+                self.__label.append(1)
+            else:
+                self.__label.append(0)
+        
+        self.__label=np.reshape(self.__label,(-1,int(windowsize/labelLength),1))
+        print(self.__label.shape)
+        self.__batch_num=int(len(self.__label)/batch_size)
+        for i in range(self.__batch_num):
+            self._LABEL.append(self.__label[i*batch_size:(i+1)*batch_size])
+        self._LABEL.append(self.__label[self.__batch_num*batch_size:])
+
+class KVD_Data(Data):
+    def MakeData(self, mfcc_path, label_path):
+        self.__BatchMFCC(mfcc_path)
+        self.__BatchMRT(label_path,10)
+
+    def __BatchMFCC(self,mfcc_path):
+        self.__tmp=self._ExtractMFCC(mfcc_path)
+        print(self.__tmp.shape)
+        self._MFCC=self.__tmp
+
+    def __BatchMRT(self,label_path,label_weight):
+        self.__file=open(label_path,'r')
+        self.__lines=self.__file.readlines()
+        self.__arrayLength=int(float(self.__lines[0])*100+1)
+        
+        self.__Label=[0]*self.__arrayLength
+
+        for i in range(1,len(self.__lines)):
+            self.__index=int(float(self.__lines[i])*100)
+            self.__Label[self.__index]=1
+            for j in range(label_weight):
+                if(self.__index-j>=0):
+                    self.__Label[self.__index-j]=1
+                if(self.__index+j<len(self.__Label)):
+                    self.__Label[self.__index+j]=1
+
+        #
+        self.__tmp=[]
+        self.num_seq=int(len(self.__Label)/time_windowSteps)-4
+        for i in range(self.num_seq):
+            self.__tempSequence=self.__Label[i*time_windowSteps:(i+4)*time_windowSteps]
+            self.__tmp.append(self.__tempSequence)
+        self.__tmp=np.reshape(self.__tmp,(-1,time_windowSize,1))
+        print(self.__tmp.shape)
+        self._LABEL=self.__tmp
+
+class Model():
+    def __init__(self,sess,name,learning_rate):
         self.sess=sess
         self.name=name
+        self.learning_rate=learning_rate
         self._build_net()
 
     def _build_net(self):
-        with tf.variable_scope(self.name):            
-            layer1=32
-            layer2=64
-            layer3=34
-            layer4=20
-            
-            self.layer_input=layer4*2
-            self.layer1=40
-            self.layer2=10
-            self.layer_output=no_output
+        pass
+    
+    def Outputs(self,x,keep_prob=1.0):
+        return self.sess.run(self.outputs,feed_dict={self.X:x,self.keep_prob:keep_prob})
 
-            self.X=tf.placeholder(tf.float32,[None,time_windowLength,vec_per_frame])
-            self.Y_transcripts=tf.placeholder(tf.int32,[None,time_windowLength])
-            self.keep_prob=tf.placeholder(tf.float32)
-            self.data_length=tf.placeholder(tf.int32)
-            self.learning_rate=tf.placeholder(tf.float32)
+    def Train(self,x,y,keep_prob=0.7):
+        return self.sess.run([self.cost,self.optimizer],feed_dict={self.X:x,self.Y:y,self.keep_prob:keep_prob})
 
-            
-            
-            layer1_cell=tf.contrib.rnn.LSTMCell(num_units=layer1,activation=tf.nn.relu,initializer=tf.contrib.layers.xavier_initializer())
-            layer1_cell=tf.contrib.rnn.DropoutWrapper(layer1_cell,self.keep_prob,self.keep_prob)
-            layer4_cell=tf.contrib.rnn.LSTMCell(num_units=layer4,activation=tf.nn.relu,initializer=tf.contrib.layers.xavier_initializer())
-            layer4_cell=tf.contrib.rnn.DropoutWrapper(layer4_cell,self.keep_prob,self.keep_prob)
-
-            multi_cell=tf.contrib.rnn.MultiRNNCell([layer1_cell,layer4_cell])
-
-            layer2_output,_=tf.nn.bidirectional_dynamic_rnn(multi_cell,multi_cell,self.X,dtype=tf.float32)
-            rnn_output=tf.concat(layer2_output,2)
-            fc_inputs=tf.reshape(rnn_output,[-1,self.layer_input])
-                        
-            W1=tf.get_variable('W1',[self.layer_input,self.layer1],tf.float32,tf.contrib.layers.xavier_initializer())
-            b1=tf.Variable(tf.random_normal([self.layer1]))
-            L1=tf.nn.relu(tf.matmul(fc_inputs,W1)+b1)
-            L1=tf.nn.dropout(L1,self.keep_prob)
-
-            W2=tf.get_variable('W2',[self.layer1,self.layer2],tf.float32,tf.contrib.layers.xavier_initializer())
-            b2=tf.Variable(tf.random_normal([self.layer2]))
-            L2=tf.nn.relu(tf.matmul(L1,W2)+b2)
-            L2=tf.nn.dropout(L2,self.keep_prob)
-
-            W3=tf.get_variable('W3',[self.layer2,no_output],tf.float32,tf.contrib.layers.xavier_initializer())
-            b3=tf.Variable(tf.random_normal([no_output]))
-            L3=(tf.matmul(L2,W3)+b3)
-
-            self.outputs=tf.reshape(L3,(-1,time_windowLength,no_output))            
-            
-            
-        self.cost=tf.reduce_mean(tf.nn.sparse_softmax_cross_entropy_with_logits(logits=self.outputs,labels=self.Y_transcripts))
-        self.optimizer=tf.train.AdamOptimizer(learning_rate=self.learning_rate).minimize(self.cost)
-
-    def show_cost(self,x,y,keep_prob=1.0):
-        return self.sess.run(self.cost,feed_dict={self.X:x,self.Y_transcripts:y,self.keep_prob:keep_prob})
-       
-    def predict(self,x_test,keep_prob=1.0):
-        return self.sess.run(tf.argmax(self.outputs,axis=2),feed_dict={self.X:x_test,self.keep_prob:keep_prob})
-  
-    def output(self,x_test,keep_prob=1.0):
-        return self.sess.run(self.outputs,feed_dict={self.X:x_test,self.keep_prob:keep_prob})
-
-    def train(self,x_data,y_data,learn,keep_prob=1.0):
-        return self.sess.run([self.cost,self.optimizer],feed_dict={self.X:x_data,self.Y_transcripts:y_data,self.learning_rate:learn,self.keep_prob:keep_prob})
-
-    def accuracy(self,x_data,y_data):
-        x_prediction=np.reshape(self.predict(x_data),[-1])
-        y_prediction=np.reshape(y_data,[-1])
+    def Accuracy(self,x,y):
+        self.x_prediction=np.reshape(self.Outputs(x),[-1])
+        self.y_prediction=np.reshape(y,[-1])
         
-        check_for_changePoint=0
-        check_for_falseAlarm=0
-        total_changePoint=0
-        total_non_changePoint=0
-        accuracy_changePoint=0.0
-        accuracy_non_changePoint=0.0
-        for i in range(self.sess.run(tf.size(y_prediction))):            
-            if(y_prediction[i]==1):
-                total_changePoint=total_changePoint+1
-                if(x_prediction[i]==1):
-                    check_for_changePoint=check_for_changePoint+1
+        self.check_for_changePoint=0
+        self.check_for_falseAlarm=0
+        self.total_changePoint=0
+        self.total_non_changePoint=0
+        self.accuracy_changePoint=0.0
+        self.accuracy_non_changePoint=0.0
+        for i in range(len(self.x_prediction)):            
+            if(self.y_prediction[i]==1):
+                self.total_changePoint=self.total_changePoint+1
+                if(self.x_prediction[i]==1):
+                    self.check_for_changePoint=self.check_for_changePoint+1
             else:
-                total_non_changePoint=total_non_changePoint+1
-                if(x_prediction[i]==0):
-                    check_for_falseAlarm=check_for_falseAlarm+1
-
-        if(total_changePoint!=0):
-            accuracy_changePoint=(float)(check_for_changePoint/total_changePoint)
-        if(total_non_changePoint!=0):
-            accuracy_non_changePoint=(float)(check_for_falseAlarm/total_non_changePoint)
+                self.total_non_changePoint=self.total_non_changePoint+1
+                if(self.x_prediction[i]==0):
+                    self.check_for_falseAlarm=self.check_for_falseAlarm+1
+        print(self.total_changePoint,self.check_for_changePoint)
+        if(self.total_changePoint!=0):
+            self.accuracy_changePoint=(float)(self.check_for_changePoint/self.total_changePoint)
+        if(self.total_non_changePoint!=0):
+            self.accuracy_non_changePoint=(float)(self.check_for_falseAlarm/self.total_non_changePoint)
                 
-        return accuracy_changePoint,accuracy_non_changePoint
+        return self.accuracy_changePoint,self.accuracy_non_changePoint
 
-    def Make_Result(self,x_test,keep_prob=1.0):
-        result=np.reshape(self.predict(x_test),[-1])
-
-        Temp=[]
-        time=(int)(time_windowLength/time_windowSteps)
-        
-        for i in range(4):
-            if(i==0):
-                for j in range(time_windowSteps):
-                    Temp.append(result[j])
-            if(i==1):
-                for j in range(time_windowSteps,2*time_windowSteps):
-                    index=j
-                    tmp_sum=0
-                    for k in range(2):
-                        tmp_sum+=result[index+3*k*time_windowSteps]
-                    Temp.append(tmp_sum/2.0)
-            if(i==2):
-                for j in range(2*time_windowSteps,3*time_windowSteps):
-                    index=j
-                    tmp_sum=0
-                    for k in range(3):
-                        tmp_sum+=result[index+3*k*time_windowSteps]
-                    Temp.append(tmp_sum/3.0)
-
-        for i in range(len(x_test)-3):
-            step=(i+1)*time_windowLength
-            for j in range(step-time_windowSteps,step):
-                index=j
-                tmp_sum=0
-                for k in range(4):
-                    tmp_sum+=result[index+3*k*time_windowSteps]
-                Temp.append(tmp_sum/4.0)
-
-        for i in range(len(x_test)-3,len(x_test)):
-            step=(i+1)*time_windowLength
-
-            if(i==len(x_test)-3):
-               for j in range(step-time_windowSteps,step):
-                   index=j
-                   tmp_sum=0
-                   for k in range(3):
-                       tmp_sum+=result[index+3*k*time_windowSteps]
-                   Temp.append(tmp_sum/3.0)
-            if(i==len(x_test)-2):
-                for j in range(step-time_windowSteps,step):
-                   index=j
-                   tmp_sum=0
-                   for k in range(2):
-                       tmp_sum+=result[index+3*k*time_windowSteps]
-                   Temp.append(tmp_sum/2.0)
-            if(i==len(x_test)-1):
-                step=(i+1)*time_windowLength
-                for j in range(step-time_windowSteps,step):
-                    Temp.append(result[j])
-        return Temp
-
-    def save(self):
+    def Save(self):
         saver=tf.train.Saver()
-        saver.save(self.sess,'Model/model')
-    def restore(self):
+        saver.save(self.sess, self.name+'/model')
+
+    def Restore(self):
         saver=tf.train.Saver()
-        saver.restore(self.sess,'Model/model')
+        saver.restore(self.sess,self.name+'/model')
 
-    def Final_Accuracy(self,x_data,y_data):
-        x_prediction=np.reshape(x_data,(-1))
-        y_prediction=np.reshape(y_data,(-1))
+class RNN_Model(Model):
+    def _build_net(self):
+        self.LSTM_layer1=32
+        self.LSTM_layer2=20
+
+        self.FC_layer1=self.LSTM_layer2*4
+        self.FC_layer2=20
+        self.FC_layer3=3
+
+        self.X=tf.placeholder(tf.float32,[None,windowsize,38])
+        self.Y=tf.placeholder(tf.float32,[None,3,1])
+        self.keep_prob=tf.placeholder(tf.float32)
         
+        self._RNN1_cell=tf.contrib.rnn.BasicLSTMCell(self.LSTM_layer1)
+        self.RNN1_cell=tf.contrib.rnn.DropoutWrapper(self._RNN1_cell,output_keep_prob=self.keep_prob)
 
-        number_of_changePoint=0
-        number_of_correct=0
-        for i in range(len(y_prediction)):
-            correct=False
-            if(y_prediction[i]==1):
-                number_of_changePoint+=1
-                for chk in range(1,check_range):
-                    if(i-chk>=0):
-                        if(x_prediction[i-chk]==1):
-                            correct=True
-                if(x_prediction[i]==1):
-                    correct=True
-                for chk in range(1,check_range):
-                    if(i+chk<len(y_prediction)):
-                        if(x_prediction[i+chk]==1):
-                            correct=True
-            if(correct==True):
-                number_of_correct+=1
-        acc=number_of_correct/number_of_changePoint
+        self._RNN2_cell=tf.contrib.rnn.BasicLSTMCell(self.LSTM_layer2)
+        self.RNN2_cell=tf.contrib.rnn.DropoutWrapper(self._RNN2_cell,output_keep_prob=self.keep_prob)
 
-        return acc
-pass
+        self.cell_fw=tf.contrib.rnn.MultiRNNCell([self.RNN1_cell,self.RNN2_cell])
+        self.cell_bw=tf.contrib.rnn.MultiRNNCell([self.RNN1_cell,self.RNN2_cell])
+        self.RNN_output,_=tf.nn.bidirectional_dynamic_rnn(self.cell_fw,self.cell_bw,self.X,dtype=tf.float32)
+        self.rnn_output=tf.concat(self.RNN_output,2)
+
+        self.__rnn_first=tf.split(self.rnn_output,300,1)[0]
+        self.__rnn_last=tf.split(self.rnn_output,300,1)[299]
+        self.__rnnout=tf.concat([self.__rnn_first,self.__rnn_last],1)
+        self.fc_input=tf.reshape(self.__rnnout,[-1,self.FC_layer1])
+
+        self.FC1=tf.contrib.layers.fully_connected(self.fc_input,self.FC_layer1,activation_fn=tf.nn.tanh)
+        self.FC2=tf.contrib.layers.fully_connected(self.FC1,self.FC_layer2,activation_fn=tf.nn.tanh)
+        self.FC3=tf.contrib.layers.fully_connected(self.FC2,self.FC_layer3,activation_fn=None)
+
+        self.outputs=tf.reshape(self.FC3,[-1,3,1])
+
+        self.cost=tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(logits=self.outputs,labels=self.Y))
+        self.optimizer=tf.train.AdamOptimizer(learning_rate=self.learning_rate).minimize(self.cost)
+               
+    
+    def Show_Shape(self,x,y,keep_prob=1.0):
+        print(self.sess.run(tf.shape(self.RNN_output),feed_dict={self.X:x,self.Y:y,self.keep_prob:keep_prob}))
+        print(self.sess.run(tf.shape(self.rnn_output),feed_dict={self.X:x,self.Y:y,self.keep_prob:keep_prob}))
+        print(self.sess.run(tf.shape(self.__rnn_first),feed_dict={self.X:x,self.Y:y,self.keep_prob:keep_prob}))
+        print(self.sess.run(tf.shape(self.__rnn_last),feed_dict={self.X:x,self.Y:y,self.keep_prob:keep_prob}))
+        print(self.sess.run(tf.shape(self.__rnnout),feed_dict={self.X:x,self.Y:y,self.keep_prob:keep_prob}))
 
