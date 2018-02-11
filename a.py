@@ -5,8 +5,8 @@ import librosa
 import sklearn.preprocessing
 
 batch_size=1500
-windowstep=50
-windowmul=6
+windowstep=100
+windowmul=3
 windowsize=windowstep*windowmul
 labelLength=int(windowsize/3)
 class Data():
@@ -147,9 +147,10 @@ class ICSI_Data(Data):
         for i in range(self.__batch_num):
             self._MFCC.append(self.__tmp[i*batch_size:(i+1)*batch_size])
             self.numberBatch+=1
+        """#나중에
         self._MFCC.append(self.__tmp[self.__batch_num*batch_size:])
         self.numberBatch+=1
-
+        """
     
     def __BatchMRT(self,label_path):        
         #
@@ -179,7 +180,9 @@ class ICSI_Data(Data):
         self.__batch_num=int(len(self.__label)/batch_size)
         for i in range(self.__batch_num):
             self._LABEL.append(self.__label[i*batch_size:(i+1)*batch_size])
+        """#나중에
         self._LABEL.append(self.__label[self.__batch_num*batch_size:])
+        """
 
 class KVD_Data(Data):
     def MakeData(self, mfcc_path, label_path):
@@ -230,7 +233,7 @@ class Model():
     def Outputs(self,x,keep_prob=1.0):
         return self.sess.run(self.outputs,feed_dict={self.X:x,self.keep_prob:keep_prob})
 
-    def Train(self,x,y,keep_prob=0.7):
+    def Train(self,x,y,keep_prob=0.8):
         return self.sess.run([self.cost,self.optimizer],feed_dict={self.X:x,self.Y:y,self.keep_prob:keep_prob})
 
     def Accuracy(self,x,y):
@@ -273,14 +276,18 @@ class RNN_Model(Model):
         self.LSTM_layer1=32
         self.LSTM_layer2=20
 
-        self.FC_layer1=self.LSTM_layer2*4
-        self.FC_layer2=20
-        self.FC_layer3=3
+        self.FC_layer1=self.LSTM_layer2*2*6
+        self.FC_layer2=80
+        self.FC_layer3=40
+        self.FC_layer4=20
+        self.FC_layerOut=2
 
         self.X=tf.placeholder(tf.float32,[None,windowsize,38])
-        self.Y=tf.placeholder(tf.float32,[None,3,1])
+        self.Y=tf.placeholder(tf.int32,[None,3,1])
         self.keep_prob=tf.placeholder(tf.float32)
         
+        self.Y1,self.Y2,self.Y3=tf.split(self.Y,3,1)
+
         self._RNN1_cell=tf.contrib.rnn.BasicLSTMCell(self.LSTM_layer1)
         self.RNN1_cell=tf.contrib.rnn.DropoutWrapper(self._RNN1_cell,output_keep_prob=self.keep_prob)
 
@@ -293,24 +300,51 @@ class RNN_Model(Model):
         self.rnn_output=tf.concat(self.RNN_output,2)
 
         self.__rnn_first=tf.split(self.rnn_output,300,1)[0]
+        self.__rnn_mid1=tf.split(self.rnn_output,300,1)[74]
+        self.__rnn_mid2=tf.split(self.rnn_output,300,1)[149]
+        self.__rnn_mid3=tf.split(self.rnn_output,300,1)[150]
+        self.__rnn_mid4=tf.split(self.rnn_output,300,1)[224]
         self.__rnn_last=tf.split(self.rnn_output,300,1)[299]
-        self.__rnnout=tf.concat([self.__rnn_first,self.__rnn_last],1)
+        self.__rnnout=tf.concat([self.__rnn_first,self.__rnn_mid1,self.__rnn_mid2,self.__rnn_mid3,self.__rnn_mid4,self.__rnn_last],1)
         self.fc_input=tf.reshape(self.__rnnout,[-1,self.FC_layer1])
 
-        self.FC1=tf.contrib.layers.fully_connected(self.fc_input,self.FC_layer1,activation_fn=tf.nn.tanh)
-        self.FC2=tf.contrib.layers.fully_connected(self.FC1,self.FC_layer2,activation_fn=tf.nn.tanh)
-        self.FC3=tf.contrib.layers.fully_connected(self.FC2,self.FC_layer3,activation_fn=None)
+        self.FC1_1=tf.contrib.layers.fully_connected(self.fc_input,self.FC_layer1)
+        self.FC1_2=tf.contrib.layers.fully_connected(self.FC1_1,self.FC_layer2)
+        self.FC1_3=tf.contrib.layers.fully_connected(self.FC1_2,self.FC_layer3)
+        self.FC1_4=tf.contrib.layers.fully_connected(self.FC1_3,self.FC_layer4)
+        self.FC1_out=tf.contrib.layers.fully_connected(self.FC1_4,self.FC_layerOut,activation_fn=None)
 
-        self.outputs=tf.reshape(self.FC3,[-1,3,1])
+        self.FC2_1=tf.contrib.layers.fully_connected(self.fc_input,self.FC_layer1)
+        self.FC2_2=tf.contrib.layers.fully_connected(self.FC2_1,self.FC_layer2)
+        self.FC2_3=tf.contrib.layers.fully_connected(self.FC2_2,self.FC_layer3)
+        self.FC2_4=tf.contrib.layers.fully_connected(self.FC2_3,self.FC_layer4)
+        self.FC2_out=tf.contrib.layers.fully_connected(self.FC2_4,self.FC_layerOut,activation_fn=None)
 
-        self.cost=tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(logits=self.outputs,labels=self.Y))
+        self.FC3_1=tf.contrib.layers.fully_connected(self.fc_input,self.FC_layer1)
+        self.FC3_2=tf.contrib.layers.fully_connected(self.FC3_1,self.FC_layer2)
+        self.FC3_3=tf.contrib.layers.fully_connected(self.FC3_2,self.FC_layer3)
+        self.FC3_4=tf.contrib.layers.fully_connected(self.FC3_3,self.FC_layer4)
+        self.FC3_out=tf.contrib.layers.fully_connected(self.FC3_4,self.FC_layerOut,activation_fn=None)        
+        
+        self.FC1_out=tf.reshape(self.FC1_out,(-1,1,2))
+        self.FC2_out=tf.reshape(self.FC2_out,(-1,1,2))
+        self.FC3_out=tf.reshape(self.FC3_out,(-1,1,2))
+
+        self.cost1=tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(logits=self.FC1_out,labels=tf.one_hot(self.Y1,2)))
+        self.cost2=tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(logits=self.FC2_out,labels=tf.one_hot(self.Y2,2)))
+        self.cost3=tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(logits=self.FC3_out,labels=tf.one_hot(self.Y3,2)))
+
+        self.cost=tf.reduce_mean(self.cost1+self.cost2+self.cost3)
         self.optimizer=tf.train.AdamOptimizer(learning_rate=self.learning_rate).minimize(self.cost)
-               
-    
+        
+        self.out1=tf.argmax(self.FC1_out,2)
+        self.out2=tf.argmax(self.FC2_out,2)
+        self.out3=tf.argmax(self.FC3_out,2)
+        self.outputs=tf.concat([self.out1,self.out2,self.out3],1)
+
     def Show_Shape(self,x,y,keep_prob=1.0):
         print(self.sess.run(tf.shape(self.RNN_output),feed_dict={self.X:x,self.Y:y,self.keep_prob:keep_prob}))
         print(self.sess.run(tf.shape(self.rnn_output),feed_dict={self.X:x,self.Y:y,self.keep_prob:keep_prob}))
-        print(self.sess.run(tf.shape(self.__rnn_first),feed_dict={self.X:x,self.Y:y,self.keep_prob:keep_prob}))
-        print(self.sess.run(tf.shape(self.__rnn_last),feed_dict={self.X:x,self.Y:y,self.keep_prob:keep_prob}))
         print(self.sess.run(tf.shape(self.__rnnout),feed_dict={self.X:x,self.Y:y,self.keep_prob:keep_prob}))
-
+        print(self.sess.run(tf.shape(self.fc_input),feed_dict={self.X:x,self.Y:y,self.keep_prob:keep_prob}))
+        print(self.sess.run(self.outputs,feed_dict={self.X:x,self.Y:y,self.keep_prob:keep_prob}))
