@@ -233,7 +233,7 @@ class Model():
     def Outputs(self,x,keep_prob=1.0):
         return self.sess.run(self.outputs,feed_dict={self.X:x,self.keep_prob:keep_prob})
 
-    def Train(self,x,y,keep_prob=0.8):
+    def Train(self,x,y,keep_prob=0.9):
         return self.sess.run([self.cost,self.optimizer],feed_dict={self.X:x,self.Y:y,self.keep_prob:keep_prob})
 
     def Accuracy(self,x,y):
@@ -273,13 +273,11 @@ class Model():
 
 class RNN_Model(Model):
     def _build_net(self):
-        self.LSTM_layer1=32
-        self.LSTM_layer2=20
+        self.LSTM_layer1=25
+        self.LSTM_layer2=15
 
-        self.FC_layer1=self.LSTM_layer2*2*6
+        self.FC_layer1=self.LSTM_layer2*2*4
         self.FC_layer2=80
-        self.FC_layer3=40
-        self.FC_layer4=20
         self.FC_layerOut=2
 
         self.X=tf.placeholder(tf.float32,[None,windowsize,38])
@@ -288,11 +286,11 @@ class RNN_Model(Model):
         
         self.Y1,self.Y2,self.Y3=tf.split(self.Y,3,1)
 
-        self._RNN1_cell=tf.contrib.rnn.BasicLSTMCell(self.LSTM_layer1)
-        self.RNN1_cell=tf.contrib.rnn.DropoutWrapper(self._RNN1_cell,output_keep_prob=self.keep_prob)
+        self.RNN1_cell=tf.contrib.rnn.BasicLSTMCell(self.LSTM_layer1)
+        self.RNN1_cell=tf.contrib.rnn.DropoutWrapper(self.RNN1_cell,output_keep_prob=self.keep_prob)
 
-        self._RNN2_cell=tf.contrib.rnn.BasicLSTMCell(self.LSTM_layer2)
-        self.RNN2_cell=tf.contrib.rnn.DropoutWrapper(self._RNN2_cell,output_keep_prob=self.keep_prob)
+        self.RNN2_cell=tf.contrib.rnn.BasicLSTMCell(self.LSTM_layer2)
+        self.RNN2_cell=tf.contrib.rnn.DropoutWrapper(self.RNN2_cell,output_keep_prob=self.keep_prob)
 
         self.cell_fw=tf.contrib.rnn.MultiRNNCell([self.RNN1_cell,self.RNN2_cell])
         self.cell_bw=tf.contrib.rnn.MultiRNNCell([self.RNN1_cell,self.RNN2_cell])
@@ -300,31 +298,29 @@ class RNN_Model(Model):
         self.rnn_output=tf.concat(self.RNN_output,2)
 
         self.__rnn_first=tf.split(self.rnn_output,300,1)[0]
-        self.__rnn_mid1=tf.split(self.rnn_output,300,1)[74]
-        self.__rnn_mid2=tf.split(self.rnn_output,300,1)[149]
-        self.__rnn_mid3=tf.split(self.rnn_output,300,1)[150]
-        self.__rnn_mid4=tf.split(self.rnn_output,300,1)[224]
-        self.__rnn_last=tf.split(self.rnn_output,300,1)[299]
-        self.__rnnout=tf.concat([self.__rnn_first,self.__rnn_mid1,self.__rnn_mid2,self.__rnn_mid3,self.__rnn_mid4,self.__rnn_last],1)
+        self.__rnn_mid1=tf.split(self.rnn_output,300,1)[99]
+        self.__rnn_mid2=tf.split(self.rnn_output,300,1)[199]
+        self.__rnn_mid3=tf.split(self.rnn_output,300,1)[299]
+        self.__rnnout=tf.concat([self.__rnn_first,self.__rnn_mid1,self.__rnn_mid2,self.__rnn_mid3],1)
         self.fc_input=tf.reshape(self.__rnnout,[-1,self.FC_layer1])
 
         self.FC1_1=tf.contrib.layers.fully_connected(self.fc_input,self.FC_layer1)
+        self.FC1_1=tf.nn.dropout(self.FC1_1,self.keep_prob)
         self.FC1_2=tf.contrib.layers.fully_connected(self.FC1_1,self.FC_layer2)
-        self.FC1_3=tf.contrib.layers.fully_connected(self.FC1_2,self.FC_layer3)
-        self.FC1_4=tf.contrib.layers.fully_connected(self.FC1_3,self.FC_layer4)
-        self.FC1_out=tf.contrib.layers.fully_connected(self.FC1_4,self.FC_layerOut,activation_fn=None)
+        self.FC1_2=tf.nn.dropout(self.FC1_2,self.keep_prob)
+        self.FC1_out=tf.contrib.layers.fully_connected(self.FC1_2,self.FC_layerOut,activation_fn=None)
 
         self.FC2_1=tf.contrib.layers.fully_connected(self.fc_input,self.FC_layer1)
+        self.FC2_1=tf.nn.dropout(self.FC2_1,self.keep_prob)
         self.FC2_2=tf.contrib.layers.fully_connected(self.FC2_1,self.FC_layer2)
-        self.FC2_3=tf.contrib.layers.fully_connected(self.FC2_2,self.FC_layer3)
-        self.FC2_4=tf.contrib.layers.fully_connected(self.FC2_3,self.FC_layer4)
-        self.FC2_out=tf.contrib.layers.fully_connected(self.FC2_4,self.FC_layerOut,activation_fn=None)
+        self.FC2_2=tf.nn.dropout(self.FC2_2,self.keep_prob)
+        self.FC2_out=tf.contrib.layers.fully_connected(self.FC2_2,self.FC_layerOut,activation_fn=None)
 
         self.FC3_1=tf.contrib.layers.fully_connected(self.fc_input,self.FC_layer1)
+        self.FC3_1=tf.nn.dropout(self.FC3_1,self.keep_prob)
         self.FC3_2=tf.contrib.layers.fully_connected(self.FC3_1,self.FC_layer2)
-        self.FC3_3=tf.contrib.layers.fully_connected(self.FC3_2,self.FC_layer3)
-        self.FC3_4=tf.contrib.layers.fully_connected(self.FC3_3,self.FC_layer4)
-        self.FC3_out=tf.contrib.layers.fully_connected(self.FC3_4,self.FC_layerOut,activation_fn=None)        
+        self.FC3_2=tf.nn.dropout(self.FC3_2,self.keep_prob)
+        self.FC3_out=tf.contrib.layers.fully_connected(self.FC3_2,self.FC_layerOut,activation_fn=None)        
         
         self.FC1_out=tf.reshape(self.FC1_out,(-1,1,2))
         self.FC2_out=tf.reshape(self.FC2_out,(-1,1,2))
@@ -334,7 +330,7 @@ class RNN_Model(Model):
         self.cost2=tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(logits=self.FC2_out,labels=tf.one_hot(self.Y2,2)))
         self.cost3=tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(logits=self.FC3_out,labels=tf.one_hot(self.Y3,2)))
 
-        self.cost=tf.reduce_mean(self.cost1+self.cost2+self.cost3)
+        self.cost=(self.cost1+self.cost2+self.cost3)
         self.optimizer=tf.train.AdamOptimizer(learning_rate=self.learning_rate).minimize(self.cost)
         
         self.out1=tf.argmax(self.FC1_out,2)
@@ -348,3 +344,30 @@ class RNN_Model(Model):
         print(self.sess.run(tf.shape(self.__rnnout),feed_dict={self.X:x,self.Y:y,self.keep_prob:keep_prob}))
         print(self.sess.run(tf.shape(self.fc_input),feed_dict={self.X:x,self.Y:y,self.keep_prob:keep_prob}))
         print(self.sess.run(self.outputs,feed_dict={self.X:x,self.Y:y,self.keep_prob:keep_prob}))
+
+    def Show_Reuslt(self,x,y,keep_prob=1.0):
+        self.x_prediction=np.reshape(self.Outputs(x),[-1])
+        self.y_prediction=np.reshape(y,[-1])
+
+        self.__dataLength=int(len(self.y_prediction)/3)
+        for i in range(self.__dataLength):
+            print('테스트 구간 :',i,'~',(i+3))
+            if(self.x_prediction[3*i]==self.y_prediction[3*i]):
+                test1=True
+            else:
+                test1=False
+
+            if(self.x_prediction[3*i+1]==self.y_prediction[3*i+1]):
+                test2=True
+            else:
+                test2=False
+
+            if(self.x_prediction[3*i+2]==self.y_prediction[3*i+2]):
+                test3=True
+            else:
+                test3=False
+
+            print(test1,test2,test3)
+            print(self.x_prediction[3*i],self.x_prediction[3*i+1],self.x_prediction[3*i+2])
+            print(self.y_prediction[3*i],self.y_prediction[3*i+1],self.y_prediction[3*i+2])
+            print()
