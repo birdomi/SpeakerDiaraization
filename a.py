@@ -66,6 +66,36 @@ class Data():
         print(len(self.__Tmfcc))
         self.__Tmfcc=sklearn.preprocessing.normalize(self.__Tmfcc)
         
+        return self.__Tmfcc
+        
+        return self.__tmp
+    
+
+    def _SaveData(self,mfcc_path,label_path):
+        self.__mfcc=self._MFCC[0]
+        self.__label=self._LABEL[0]
+
+        for i in range(1,self.numberBatch):
+            self.__mfcc=np.append(self.__mfcc,self._MFCC[i])
+            self.__label=np.append(self.__label,self._LABEL[i])
+        print(self.__mfcc.shape,self.__label.shape)
+
+        for i in range(len(mfcc_path)):
+            if(mfcc_path[i]=='.'):
+                self.__index=i
+        np.savetxt(mfcc_path[:self.__index]+'.mfc',self.__mfcc,delimiter=' ')
+        np.savetxt(mfcc_path[:self.__index]+'.lab',self.__label,delimiter= ' ')
+
+
+
+class ICSI_Data(Data):
+    def MakeData(self, mfcc_path, label_path):
+        #self.__BatchMFCC(mfcc_path)
+        self.__LabelMRT(label_path)
+
+    def __BatchMFCC(self,mfcc_path):
+        self.__Tmfcc=self._ExtractMFCC(mfcc_path)
+        
         self.__data_length=int(len(self.__Tmfcc)/windowstep)
         self.__num_seq=self.__data_length-windowmul+1
         
@@ -73,24 +103,35 @@ class Data():
         for i in range(self.__num_seq):
             self.__tempSequence=self.__Tmfcc[i*windowstep:(i+windowmul)*windowstep]
             self.__tmp.append(self.__tempSequence)
-        self.__tmp=np.reshape(self.__tmp,(-1,windowsize,38))
-        return self.__tmp
-    
-    def _LabelMRT(self,label_path):
+
+        self.__tmp=np.reshape(self.__tmp,(-1,windowsize,38))        
+        self.__batch_num=int(len(self.__tmp)/batch_size)
+        print(self.__tmp.shape)
+        for i in range(self.__batch_num):
+            self._MFCC.append(self.__tmp[i*batch_size:(i+1)*batch_size])
+            self.numberBatch+=1
+       
+    def __LabelMRT(self,label_path):
         self.__file=open(label_path,'r')
         self.__lines=self.__file.readlines()
         for self.__line in self.__lines:
             if(self.__line[2:13]=='<Transcript'):
                 self.__startTime,self.__endTime=self.__Get_Data_fromMRT(self.__line)
                 break
-        self.__Label=[0]*int(self.__endTime*100+1)
+        self.__Label=['']*int(self.__endTime*100+1)
+        print(self.__Label)
+        
         for i in range(len(self.__lines)):
             if(self.__lines[i][4:12]=='<Segment'):
                 self.__startTime,self.__endTime,self.__speakerName=self.__Get_Data_fromMRT(self.__lines[i])
                 if(self.__Is_VocalSound(self.__lines[i+1])):
-                    self.__Label[int(self.__startTime*100)]=1
-                    self.__Label[int(self.__endTime*100)]=1       
-        return self.__Label    
+                    for index in range(int(self.__startTime*100),int(self.__endTime*100)+1):
+                        self.__Label[index]+=' '+self.__speakerName
+        print(self.__Label)
+
+        for i in range(len(self.__Label)):
+            pass 
+        #return self.__Label    
         
 
     def __Get_Data_fromMRT(self,line):
@@ -116,42 +157,6 @@ class Data():
             if(line[i:i+2]=='<N'or line[i:i+2]=='<C'or line[i:i+2]=='<U'):
                 self.__Is_Vocal=False
         return self.__Is_Vocal
-
-    def _SaveData(self,mfcc_path,label_path):
-        self.__mfcc=self._MFCC[0]
-        self.__label=self._LABEL[0]
-
-        for i in range(1,self.numberBatch):
-            self.__mfcc=np.append(self.__mfcc,self._MFCC[i])
-            self.__label=np.append(self.__label,self._LABEL[i])
-        print(self.__mfcc.shape,self.__label.shape)
-
-        for i in range(len(mfcc_path)):
-            if(mfcc_path[i]=='.'):
-                self.__index=i
-        np.savetxt(mfcc_path[:self.__index]+'.mfc',self.__mfcc,delimiter=' ')
-        np.savetxt(mfcc_path[:self.__index]+'.lab',self.__label,delimiter= ' ')
-
-
-
-class ICSI_Data(Data):
-    def MakeData(self, mfcc_path, label_path):
-        self.__BatchMFCC(mfcc_path)
-        self.__BatchMRT(label_path)
-
-    def __BatchMFCC(self,mfcc_path):
-        self.__tmp=self._ExtractMFCC(mfcc_path)
-        print(self.__tmp.shape)
-
-        self.__batch_num=int(len(self.__tmp)/batch_size)
-        for i in range(self.__batch_num):
-            self._MFCC.append(self.__tmp[i*batch_size:(i+1)*batch_size])
-            self.numberBatch+=1
-        """#나중에
-        self._MFCC.append(self.__tmp[self.__batch_num*batch_size:])
-        self.numberBatch+=1
-        """
-    
     def __BatchMRT(self,label_path):        
         #
         self.__Label=self._LabelMRT(label_path)
@@ -180,9 +185,7 @@ class ICSI_Data(Data):
         self.__batch_num=int(len(self.__label)/batch_size)
         for i in range(self.__batch_num):
             self._LABEL.append(self.__label[i*batch_size:(i+1)*batch_size])
-        """#나중에
-        self._LABEL.append(self.__label[self.__batch_num*batch_size:])
-        """
+        
 
 class KVD_Data(Data):
     def MakeData(self, mfcc_path, label_path):
