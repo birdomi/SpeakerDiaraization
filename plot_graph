@@ -1,0 +1,37 @@
+import pylab as plt
+from utils import Lib
+import numpy as np
+import re
+
+def plot_static(fn,dropout_prob=0.8) :
+    f=open(fn,'r',encoding='UTF8')
+    lines=f.readlines()
+    t=[];	costs=[];test_costs=[];trainAcc=[];testAcc=[];bestAcc=0
+    number=re.compile("\d+")
+    temp=number.findall(lines[0])
+    for i in range(int(temp[1])):
+        results=number.findall(lines[i])
+        t.append(int(results[0]))
+        costs.append(float(results[5])/10000)
+        trainAcc.append(float(results[7])/10000)
+        testAcc.append(float(results[9])/10000)
+        bestAcc=(float(results[11])/10000)
+
+    tmin=t[0]
+    tmax=t[len(t)-1]
+    tstep=round((tmax-tmin)/20)
+
+    plt.plot(t,costs,'b',label="train cost")
+    #plt.plot(t,test_costs,label='test cost')
+    plt.legend(loc='upper right')
+    plt.xlabel('Epoch')
+    plt.ylabel('Cross Entropy')
+    plt.grid(b=True, which='major', color='k', linestyle='-',alpha=0.9)
+    plt.grid(b=True, which='minor', color='k', linestyle='-', alpha=0.2)
+    plt.minorticks_on()
+    plt.xticks(np.arange(tmin,tmax+tstep,tstep))
+    plt.yticks(np.arange(0,1,0.05))
+    plt.xlim([0,tmax])
+    plt.ylim([0,1])
+    plt.savefig("{}-cost.png".format(fn.split(".")[:-1][0]), bbox_inches='tight')
+    plt.show()
