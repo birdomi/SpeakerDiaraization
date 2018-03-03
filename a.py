@@ -8,7 +8,7 @@ batch_size=1500
 windowstep=100
 windowmul=3
 windowsize=windowstep*windowmul
-labelLength=int(windowsize/3)
+labelLength=int(windowsize/windowmul)
 class Data():
     def __init__(self):
         self._MFCC=[]
@@ -31,7 +31,7 @@ class Data():
     def LodaData(self,mfcc_path,label_path):
         self.__mfcc=np.loadtxt(self.__filename+'.mfc')
         self.__label=np.loadtxt(self.__filename+'.lab',int)
-        self.__mfcc=np.reshape(self.__mfcc,(-1,320,38))
+        self.__mfcc=np.reshape(self.__mfcc,(-1,320,39))
         self.__label=np.reshape(self.__label,(-1,320))
         print(self.__mfcc)
         print(self.__label)
@@ -51,14 +51,13 @@ class Data():
     def _ExtractMFCC(self,mfcc_path):
         self.__audio,self.__sr=librosa.load(mfcc_path,sr=16000)
         self.__mfcc=librosa.feature.mfcc(self.__audio,self.__sr,n_mfcc=12,hop_length=int(self.__sr/100), n_fft=int(self.__sr/40))
+        self.__mfcc_energy=librosa.feature.rmse(S=self.__mfcc,hop_length=int(self.__sr/100), n_fft=int(self.__sr/40))
+        self.__mfcc=np.append(self.__mfcc,self.__mfcc_energy,axis=0)
 
         self.__mfcc1=librosa.feature.delta(self.__mfcc)
-        self.__mfcc1_energy=librosa.feature.rmse(S=self.__mfcc1,hop_length=int(self.__sr/100), n_fft=int(self.__sr/40))
-        self.__mfcc1=np.append(self.__mfcc1,self.__mfcc1_energy,axis=0)
-
+        
         self.__mfcc2=librosa.feature.delta(self.__mfcc,order=2)
-        self.__mfcc2_energy=librosa.feature.rmse(S=self.__mfcc2,hop_length=int(self.__sr/100), n_fft=int(self.__sr/40))
-        self.__mfcc2=np.append(self.__mfcc2,self.__mfcc2_energy,axis=0)
+        
 
         self.__mfcc=np.append(self.__mfcc,self.__mfcc1,axis=0)
         self.__mfcc=np.append(self.__mfcc,self.__mfcc2,axis=0)
@@ -89,11 +88,18 @@ class Data():
 
 
 class ICSI_Data(Data):
-    def MakeData(self, mfcc_path, label_path):
-        #self.__BatchMFCC(mfcc_path)
-        self.__LabelMRT(label_path)
+    def MakeData(self, mfcc_path, label_path,hamming):
+        self.__BatchMFCC(mfcc_path,hamming)
+        self.__BatchMRT(label_path)
 
-    def __BatchMFCC(self,mfcc_path):
+    def __BatchMFCC(self,mfcc_path,hamming):
+        if(hamming=='N'):
+            self.__hamming=np.ones((windowsize,1))
+        if(hamming=='On'):
+            self.__hamming=np.reshape(np.hamming(windowsize),(windowsize,1))
+        if(hamming=='1-On'):
+            self.__hamming=np.ones((windowsize,1))-np.reshape(np.hamming(windowsize),(windowsize,1))
+
         self.__Tmfcc=self._ExtractMFCC(mfcc_path)
         
         self.__data_length=int(len(self.__Tmfcc)/windowstep)
@@ -101,10 +107,11 @@ class ICSI_Data(Data):
         
         self.__tmp=[]
         for i in range(self.__num_seq):
-            self.__tempSequence=self.__Tmfcc[i*windowstep:(i+windowmul)*windowstep]
+            self.__tempSequence=self.__Tmfcc[i*windowstep:(i+windowmul)*windowstep]            
+            self.__tempSequence=np.multiply(self.__tempSequence,self.__hamming)
             self.__tmp.append(self.__tempSequence)
 
-        self.__tmp=np.reshape(self.__tmp,(-1,windowsize,38))        
+        self.__tmp=np.reshape(self.__tmp,(-1,windowsize,39))        
         self.__batch_num=int(len(self.__tmp)/batch_size)
         print(self.__tmp.shape)
         for i in range(self.__batch_num):
@@ -118,20 +125,33 @@ class ICSI_Data(Data):
             if(self.__line[2:13]=='<Transcript'):
                 self.__startTime,self.__endTime=self.__Get_Data_fromMRT(self.__line)
                 break
-        self.__Label=['']*int(self.__endTime*100+1)
-        print(self.__Label)
-        
+        self.__Label=['']*int(self.__endTime*100+1)        
+        self.__Label_01=[0]*int(self.__endTime*100+1)
+
         for i in range(len(self.__lines)):
             if(self.__lines[i][4:12]=='<Segment'):
                 self.__startTime,self.__endTime,self.__speakerName=self.__Get_Data_fromMRT(self.__lines[i])
                 if(self.__Is_VocalSound(self.__lines[i+1])):
                     for index in range(int(self.__startTime*100),int(self.__endTime*100)+1):
                         self.__Label[index]+=' '+self.__speakerName
-        print(self.__Label)
-
+        #print(self.__Label)
+        
+        self.__pastSpeaker=''
         for i in range(len(self.__Label)):
-            pass 
-        #return self.__Label    
+            self.__currnetSpeaker=self.__Label[i]
+            if(self.__pastSpeaker!=self.__currnetSpeaker):
+                self.__isLonger_than_1sec=True
+                for time in range(0,1):
+                    if(i+time+1<len(self.__Label)):
+                        if(self.__Label[i+time]!=self.__Label[i+time+1]):
+                            self.__isLonger_than_1sec=False
+
+                if(self.__isLonger_than_1sec):
+                    self.__pastSpeaker=self.__currnetSpeaker
+                    self.__Label_01[i]=1
+                    #print(i/100)
+
+        return self.__Label_01
         
 
     def __Get_Data_fromMRT(self,line):
@@ -157,16 +177,17 @@ class ICSI_Data(Data):
             if(line[i:i+2]=='<N'or line[i:i+2]=='<C'or line[i:i+2]=='<U'):
                 self.__Is_Vocal=False
         return self.__Is_Vocal
+    
     def __BatchMRT(self,label_path):        
         #
-        self.__Label=self._LabelMRT(label_path)
+        self.__Label=self.__LabelMRT(label_path)
         print(len(self.__Label))
 
         self.__data_length=int(len(self.__Label)/windowstep)
         self.__num_seq=self.__data_length-windowmul+1
         self.__tmp=[]
         for i in range(self.__num_seq):
-            self.__tempSequence=self.__Label[i*windowstep:(i+windowmul)*windowstep]
+            self.__tempSequence=self.__Label[(i+windowmul-2)*windowstep:(i+windowmul-1)*windowstep]
             self.__tmp.append(self.__tempSequence)
         self.__tmp=np.reshape(self.__tmp,(-1))
         self.__label=[]
@@ -180,48 +201,13 @@ class ICSI_Data(Data):
             else:
                 self.__label.append(0)
         
-        self.__label=np.reshape(self.__label,(-1,int(windowsize/labelLength),1))
+        self.__label=np.reshape(self.__label,(-1,1,1))
         print(self.__label.shape)
+        
         self.__batch_num=int(len(self.__label)/batch_size)
         for i in range(self.__batch_num):
             self._LABEL.append(self.__label[i*batch_size:(i+1)*batch_size])
         
-
-class KVD_Data(Data):
-    def MakeData(self, mfcc_path, label_path):
-        self.__BatchMFCC(mfcc_path)
-        self.__BatchMRT(label_path,10)
-
-    def __BatchMFCC(self,mfcc_path):
-        self.__tmp=self._ExtractMFCC(mfcc_path)
-        print(self.__tmp.shape)
-        self._MFCC=self.__tmp
-
-    def __BatchMRT(self,label_path,label_weight):
-        self.__file=open(label_path,'r')
-        self.__lines=self.__file.readlines()
-        self.__arrayLength=int(float(self.__lines[0])*100+1)
-        
-        self.__Label=[0]*self.__arrayLength
-
-        for i in range(1,len(self.__lines)):
-            self.__index=int(float(self.__lines[i])*100)
-            self.__Label[self.__index]=1
-            for j in range(label_weight):
-                if(self.__index-j>=0):
-                    self.__Label[self.__index-j]=1
-                if(self.__index+j<len(self.__Label)):
-                    self.__Label[self.__index+j]=1
-
-        #
-        self.__tmp=[]
-        self.num_seq=int(len(self.__Label)/time_windowSteps)-4
-        for i in range(self.num_seq):
-            self.__tempSequence=self.__Label[i*time_windowSteps:(i+4)*time_windowSteps]
-            self.__tmp.append(self.__tempSequence)
-        self.__tmp=np.reshape(self.__tmp,(-1,time_windowSize,1))
-        print(self.__tmp.shape)
-        self._LABEL=self.__tmp
 
 class Model():
     def __init__(self,sess,name,learning_rate):
@@ -236,7 +222,20 @@ class Model():
     def Outputs(self,x,keep_prob=1.0):
         return self.sess.run(self.outputs,feed_dict={self.X:x,self.keep_prob:keep_prob})
 
-    def Train(self,x,y,keep_prob=0.9):
+    def Cost(self,x,y,keep_prob=1.0):
+        return self.sess.run(self.cost,feed_dict={self.X:x,self.Y:y,self.keep_prob:keep_prob})
+
+    def return_ResultMatrix(self,x,y):
+        self.x_prediction=np.reshape(self.Outputs(x),[-1])
+        self.y_prediction=np.reshape(y,[-1])
+
+        self.resultMatrix=np.zeros([2,2],int)
+        for i in range(len(self.x_prediction)):
+            self.resultMatrix[self.y_prediction[i]][self.x_prediction[i]]+=1
+
+        return self.resultMatrix
+
+    def Train(self,x,y,keep_prob=0.8):
         return self.sess.run([self.cost,self.optimizer],feed_dict={self.X:x,self.Y:y,self.keep_prob:keep_prob})
 
     def Accuracy(self,x,y):
@@ -258,7 +257,8 @@ class Model():
                 self.total_non_changePoint=self.total_non_changePoint+1
                 if(self.x_prediction[i]==0):
                     self.check_for_falseAlarm=self.check_for_falseAlarm+1
-        print(self.total_changePoint,self.check_for_changePoint)
+        #print('1의 총 개수, 맞은 개수: ',self.total_changePoint,self.check_for_changePoint)
+        #print('0의 총 개수, 맞은 개수: ',self.total_non_changePoint,self.check_for_falseAlarm) 
         if(self.total_changePoint!=0):
             self.accuracy_changePoint=(float)(self.check_for_changePoint/self.total_changePoint)
         if(self.total_non_changePoint!=0):
@@ -266,111 +266,173 @@ class Model():
                 
         return self.accuracy_changePoint,self.accuracy_non_changePoint
 
-    def Save(self):
+    def Save(self,name):
         saver=tf.train.Saver()
-        saver.save(self.sess, self.name+'/model')
+        saver.save(self.sess, name)
 
-    def Restore(self):
+    def Restore(self,name):
         saver=tf.train.Saver()
-        saver.restore(self.sess,self.name+'/model')
+        saver.restore(self.sess,name)
 
-class RNN_Model(Model):
+class RNN_Model_usingMiddle(Model):
     def _build_net(self):
-        self.LSTM_layer1=25
-        self.LSTM_layer2=15
+        self.LSTM_layer1=35
+        self.LSTM_layer2=30
 
-        self.FC_layer1=self.LSTM_layer2*2*4
-        self.FC_layer2=80
+        self.FC_layer1=self.LSTM_layer2*2*20
+        self.FC_layer2=500
         self.FC_layerOut=2
 
-        self.X=tf.placeholder(tf.float32,[None,windowsize,38])
-        self.Y=tf.placeholder(tf.int32,[None,3,1])
-        self.keep_prob=tf.placeholder(tf.float32)
-        
-        self.Y1,self.Y2,self.Y3=tf.split(self.Y,3,1)
+        self.X=tf.placeholder(tf.float32,[None,windowsize,39])
+        self.Y=tf.placeholder(tf.int32,[None,1,1])
+        self.keep_prob=tf.placeholder(tf.float32)       
 
-        self.RNN1_cell=tf.contrib.rnn.BasicLSTMCell(self.LSTM_layer1)
+        self.RNN1_cell=tf.contrib.rnn.LSTMCell(self.LSTM_layer1,activation=tf.nn.tanh)
         self.RNN1_cell=tf.contrib.rnn.DropoutWrapper(self.RNN1_cell,output_keep_prob=self.keep_prob)
 
-        self.RNN2_cell=tf.contrib.rnn.BasicLSTMCell(self.LSTM_layer2)
+        self.RNN2_cell=tf.contrib.rnn.LSTMCell(self.LSTM_layer2,activation=tf.nn.tanh)
         self.RNN2_cell=tf.contrib.rnn.DropoutWrapper(self.RNN2_cell,output_keep_prob=self.keep_prob)
 
         self.cell_fw=tf.contrib.rnn.MultiRNNCell([self.RNN1_cell,self.RNN2_cell])
         self.cell_bw=tf.contrib.rnn.MultiRNNCell([self.RNN1_cell,self.RNN2_cell])
         self.RNN_output,_=tf.nn.bidirectional_dynamic_rnn(self.cell_fw,self.cell_bw,self.X,dtype=tf.float32)
         self.rnn_output=tf.concat(self.RNN_output,2)
+        
+        self.__rnn_first=tf.split(self.rnn_output,windowsize,1)[100:200]
+        self.__rnnout=tf.concat(self.__rnn_first,2)
 
-        self.__rnn_first=tf.split(self.rnn_output,300,1)[0]
-        self.__rnn_mid1=tf.split(self.rnn_output,300,1)[99]
-        self.__rnn_mid2=tf.split(self.rnn_output,300,1)[199]
-        self.__rnn_mid3=tf.split(self.rnn_output,300,1)[299]
-        self.__rnnout=tf.concat([self.__rnn_first,self.__rnn_mid1,self.__rnn_mid2,self.__rnn_mid3],1)
-        self.fc_input=tf.reshape(self.__rnnout,[-1,self.FC_layer1])
+        self.fc_input=tf.reshape(self.__rnnout,[-1,60*100])
+        self.FC1_1=tf.contrib.layers.fully_connected(self.fc_input,self.FC_layer1)
+        self.FC1_1=tf.nn.dropout(self.FC1_1,self.keep_prob)
+        self.FC1_2=tf.contrib.layers.fully_connected(self.FC1_1,self.FC_layer2)
+        self.FC1_2=tf.nn.dropout(self.FC1_2,self.keep_prob)
+        self.FC1_out=tf.contrib.layers.fully_connected(self.FC1_2,self.FC_layerOut,activation_fn=None)
+        
+        self.FC1_out=tf.reshape(self.FC1_out,(-1,1,2))
+
+        self.cost=tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits_v2(logits=self.FC1_out,labels=tf.one_hot(self.Y,2)))
+        
+        self.optimizer=tf.train.AdamOptimizer(learning_rate=self.learning_rate).minimize(self.cost)
+        
+        self.outputs=tf.argmax(self.FC1_out,2)
+
+    def Show_Shape(self,x,y,keep_prob=1.0):
+        print(self.sess.run(tf.shape(self.RNN_output),feed_dict={self.X:x,self.Y:y,self.keep_prob:keep_prob}))
+        print(self.sess.run(tf.shape(self.__rnn_first),feed_dict={self.X:x,self.Y:y,self.keep_prob:keep_prob}))
+        print(self.sess.run(tf.shape(self.__rnnout),feed_dict={self.X:x,self.Y:y,self.keep_prob:keep_prob}))
+        print(self.sess.run(tf.shape(self.fc_input),feed_dict={self.X:x,self.Y:y,self.keep_prob:keep_prob}))
+        print(self.sess.run(self.outputs,feed_dict={self.X:x,self.Y:y,self.keep_prob:keep_prob}))
+
+    def Show_Reuslt(self,x,y,keep_prob=1.0):
+        return self.sess.run(self.ler,feed_dict={self.X:x,self.Y:y,self.keep_prob:keep_prob})
+
+class RNN_Model_usingBoundary(Model):
+    def _build_net(self):
+        self.LSTM_layer1=35
+        self.LSTM_layer2=30
+
+        self.FC_layer1=self.LSTM_layer2*2*20
+        self.FC_layer2=500
+        self.FC_layerOut=2
+
+        self.X=tf.placeholder(tf.float32,[None,windowsize,39])
+        self.Y=tf.placeholder(tf.int32,[None,1,1])
+        self.keep_prob=tf.placeholder(tf.float32)       
+
+        self.RNN1_cell=tf.contrib.rnn.LSTMCell(self.LSTM_layer1,activation=tf.nn.tanh)
+        self.RNN1_cell=tf.contrib.rnn.DropoutWrapper(self.RNN1_cell,output_keep_prob=self.keep_prob)
+
+        self.RNN2_cell=tf.contrib.rnn.LSTMCell(self.LSTM_layer2,activation=tf.nn.tanh)
+        self.RNN2_cell=tf.contrib.rnn.DropoutWrapper(self.RNN2_cell,output_keep_prob=self.keep_prob)
+
+        self.cell_fw=tf.contrib.rnn.MultiRNNCell([self.RNN1_cell,self.RNN2_cell])
+        self.cell_bw=tf.contrib.rnn.MultiRNNCell([self.RNN1_cell,self.RNN2_cell])
+        self.RNN_output,_=tf.nn.bidirectional_dynamic_rnn(self.cell_fw,self.cell_bw,self.X,dtype=tf.float32)
+        self.rnn_output=tf.concat(self.RNN_output,2)
+        
+        self.__rnn_first=tf.split(self.rnn_output,windowsize,1)[0:100]
+        self.__rnn_second=tf.split(self.rnn_output,windowsize,1)[200:300]
+        self.__rnnout1=tf.concat(self.__rnn_first,2)
+        self.__rnnout2=tf.concat(self.__rnn_second,2)
+        self.__rnnout=tf.concat([self.__rnnout1,self.__rnnout2],2)
+        self.fc_input=tf.reshape(self.__rnnout,[-1,60*200])
 
         self.FC1_1=tf.contrib.layers.fully_connected(self.fc_input,self.FC_layer1)
         self.FC1_1=tf.nn.dropout(self.FC1_1,self.keep_prob)
         self.FC1_2=tf.contrib.layers.fully_connected(self.FC1_1,self.FC_layer2)
         self.FC1_2=tf.nn.dropout(self.FC1_2,self.keep_prob)
         self.FC1_out=tf.contrib.layers.fully_connected(self.FC1_2,self.FC_layerOut,activation_fn=None)
-
-        self.FC2_1=tf.contrib.layers.fully_connected(self.fc_input,self.FC_layer1)
-        self.FC2_1=tf.nn.dropout(self.FC2_1,self.keep_prob)
-        self.FC2_2=tf.contrib.layers.fully_connected(self.FC2_1,self.FC_layer2)
-        self.FC2_2=tf.nn.dropout(self.FC2_2,self.keep_prob)
-        self.FC2_out=tf.contrib.layers.fully_connected(self.FC2_2,self.FC_layerOut,activation_fn=None)
-
-        self.FC3_1=tf.contrib.layers.fully_connected(self.fc_input,self.FC_layer1)
-        self.FC3_1=tf.nn.dropout(self.FC3_1,self.keep_prob)
-        self.FC3_2=tf.contrib.layers.fully_connected(self.FC3_1,self.FC_layer2)
-        self.FC3_2=tf.nn.dropout(self.FC3_2,self.keep_prob)
-        self.FC3_out=tf.contrib.layers.fully_connected(self.FC3_2,self.FC_layerOut,activation_fn=None)        
         
         self.FC1_out=tf.reshape(self.FC1_out,(-1,1,2))
-        self.FC2_out=tf.reshape(self.FC2_out,(-1,1,2))
-        self.FC3_out=tf.reshape(self.FC3_out,(-1,1,2))
 
-        self.cost1=tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(logits=self.FC1_out,labels=tf.one_hot(self.Y1,2)))
-        self.cost2=tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(logits=self.FC2_out,labels=tf.one_hot(self.Y2,2)))
-        self.cost3=tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(logits=self.FC3_out,labels=tf.one_hot(self.Y3,2)))
-
-        self.cost=(self.cost1+self.cost2+self.cost3)
+        self.cost=tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits_v2(logits=self.FC1_out,labels=tf.one_hot(self.Y,2)))
+        
         self.optimizer=tf.train.AdamOptimizer(learning_rate=self.learning_rate).minimize(self.cost)
         
-        self.out1=tf.argmax(self.FC1_out,2)
-        self.out2=tf.argmax(self.FC2_out,2)
-        self.out3=tf.argmax(self.FC3_out,2)
-        self.outputs=tf.concat([self.out1,self.out2,self.out3],1)
+        self.outputs=tf.argmax(self.FC1_out,2)
 
     def Show_Shape(self,x,y,keep_prob=1.0):
         print(self.sess.run(tf.shape(self.RNN_output),feed_dict={self.X:x,self.Y:y,self.keep_prob:keep_prob}))
-        print(self.sess.run(tf.shape(self.rnn_output),feed_dict={self.X:x,self.Y:y,self.keep_prob:keep_prob}))
+        print(self.sess.run(tf.shape(self.__rnn_first),feed_dict={self.X:x,self.Y:y,self.keep_prob:keep_prob}))
+        print(self.sess.run(tf.shape(self.__rnn_second),feed_dict={self.X:x,self.Y:y,self.keep_prob:keep_prob}))
+        print(self.sess.run(tf.shape(self.__rnnout1),feed_dict={self.X:x,self.Y:y,self.keep_prob:keep_prob}))
+        print(self.sess.run(tf.shape(self.__rnnout2),feed_dict={self.X:x,self.Y:y,self.keep_prob:keep_prob}))
         print(self.sess.run(tf.shape(self.__rnnout),feed_dict={self.X:x,self.Y:y,self.keep_prob:keep_prob}))
         print(self.sess.run(tf.shape(self.fc_input),feed_dict={self.X:x,self.Y:y,self.keep_prob:keep_prob}))
         print(self.sess.run(self.outputs,feed_dict={self.X:x,self.Y:y,self.keep_prob:keep_prob}))
 
     def Show_Reuslt(self,x,y,keep_prob=1.0):
-        self.x_prediction=np.reshape(self.Outputs(x),[-1])
-        self.y_prediction=np.reshape(y,[-1])
+        return self.sess.run(self.ler,feed_dict={self.X:x,self.Y:y,self.keep_prob:keep_prob})
 
-        self.__dataLength=int(len(self.y_prediction)/3)
-        for i in range(self.__dataLength):
-            print('테스트 구간 :',i,'~',(i+3))
-            if(self.x_prediction[3*i]==self.y_prediction[3*i]):
-                test1=True
-            else:
-                test1=False
+class RNN_Model_usingAll(Model):
+    def _build_net(self):
+        self.LSTM_layer1=35
+        self.LSTM_layer2=30
 
-            if(self.x_prediction[3*i+1]==self.y_prediction[3*i+1]):
-                test2=True
-            else:
-                test2=False
+        self.FC_layer1=self.LSTM_layer2*2*20
+        self.FC_layer2=500
+        self.FC_layerOut=2
 
-            if(self.x_prediction[3*i+2]==self.y_prediction[3*i+2]):
-                test3=True
-            else:
-                test3=False
+        self.X=tf.placeholder(tf.float32,[None,windowsize,39])
+        self.Y=tf.placeholder(tf.int32,[None,1,1])
+        self.keep_prob=tf.placeholder(tf.float32)       
 
-            print(test1,test2,test3)
-            print(self.x_prediction[3*i],self.x_prediction[3*i+1],self.x_prediction[3*i+2])
-            print(self.y_prediction[3*i],self.y_prediction[3*i+1],self.y_prediction[3*i+2])
-            print()
+        self.RNN1_cell=tf.contrib.rnn.LSTMCell(self.LSTM_layer1,activation=tf.nn.tanh)
+        self.RNN1_cell=tf.contrib.rnn.DropoutWrapper(self.RNN1_cell,output_keep_prob=self.keep_prob)
+
+        self.RNN2_cell=tf.contrib.rnn.LSTMCell(self.LSTM_layer2,activation=tf.nn.tanh)
+        self.RNN2_cell=tf.contrib.rnn.DropoutWrapper(self.RNN2_cell,output_keep_prob=self.keep_prob)
+
+        self.cell_fw=tf.contrib.rnn.MultiRNNCell([self.RNN1_cell,self.RNN2_cell])
+        self.cell_bw=tf.contrib.rnn.MultiRNNCell([self.RNN1_cell,self.RNN2_cell])
+        self.RNN_output,_=tf.nn.bidirectional_dynamic_rnn(self.cell_fw,self.cell_bw,self.X,dtype=tf.float32)
+        self.rnn_output=tf.concat(self.RNN_output,2)
+        
+        self.__rnn_first=tf.split(self.rnn_output,windowsize,1)[0:300]
+        self.__rnnout=tf.concat(self.__rnn_first,2)
+
+        self.fc_input=tf.reshape(self.__rnnout,[-1,60*300])
+
+        self.FC1_1=tf.contrib.layers.fully_connected(self.fc_input,self.FC_layer1)
+        self.FC1_1=tf.nn.dropout(self.FC1_1,self.keep_prob)
+        self.FC1_2=tf.contrib.layers.fully_connected(self.FC1_1,self.FC_layer2)
+        self.FC1_2=tf.nn.dropout(self.FC1_2,self.keep_prob)
+        self.FC1_out=tf.contrib.layers.fully_connected(self.FC1_2,self.FC_layerOut,activation_fn=None)
+        
+        self.FC1_out=tf.reshape(self.FC1_out,(-1,1,2))
+
+        self.cost=tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits_v2(logits=self.FC1_out,labels=tf.one_hot(self.Y,2)))
+        
+        self.optimizer=tf.train.AdamOptimizer(learning_rate=self.learning_rate).minimize(self.cost)
+        
+        self.outputs=tf.argmax(self.FC1_out,2)
+
+    def Show_Shape(self,x,y,keep_prob=1.0):
+        print(self.sess.run(tf.shape(self.rnn_output),feed_dict={self.X:x,self.Y:y,self.keep_prob:keep_prob}))
+        print(self.sess.run(tf.shape(self.__rnn_first),feed_dict={self.X:x,self.Y:y,self.keep_prob:keep_prob}))
+        print(self.sess.run(tf.shape(self.__rnnout),feed_dict={self.X:x,self.Y:y,self.keep_prob:keep_prob}))
+        print(self.sess.run(tf.shape(self.fc_input),feed_dict={self.X:x,self.Y:y,self.keep_prob:keep_prob}))
+        print(self.sess.run(self.outputs,feed_dict={self.X:x,self.Y:y,self.keep_prob:keep_prob}))
+
+    def Show_Reuslt(self,x,y,keep_prob=1.0):
+        return self.sess.run(self.ler,feed_dict={self.X:x,self.Y:y,self.keep_prob:keep_prob})
