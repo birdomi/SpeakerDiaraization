@@ -1,0 +1,38 @@
+def Show_Reuslt(self,x,saveFile):
+        threshold=0.5
+        self.__output=self.Outputs(x)
+        self.__output=np.reshape(self.__output,(-1,1))
+        
+        
+        self.__outputArray=[];t=[];self.__Label=[]
+        for i in range(int(len(self.__output)/windowsize)-windowmul):
+            for j in range(windowstep):
+                t.append(i*50+j)
+            first_windowStart=windowsize*i
+            outputArray=np.zeros((windowstep,1))
+            for j in range(windowmul):          
+                window=first_windowStart+windowsize*(j+1)
+                windowStart=window-windowstep*(j+1)
+                windowEnd=window-windowstep*j
+                a1=self.__output[windowStart:windowEnd]
+                outputArray+=a1
+            self.__outputArray.append(outputArray/windowmul)
+
+        self.__outputArray=np.reshape(self.__outputArray,(-1))
+                
+        self.currActivity=self.__outputArray[0]
+        f=open(saveFile,'w')
+        for i in range(len(self.__outputArray)):
+            if(self.currActivity==0):
+                if(self.__outputArray[i]>threshold):
+                    out="{:.2f}".format(2.5+0.01*i)
+                    print(out)
+                    f.write(out+'\n')
+                    self.currActivity=1
+            if(self.currActivity==1):
+                if(self.__outputArray[i]<threshold):
+                    out="{:.2f}".format(2.5+0.01*i)
+                    print(out)
+                    f.write(out+'\n')
+                    self.currActivity=0
+        f.close()
