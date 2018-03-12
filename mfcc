@@ -1,0 +1,19 @@
+from python_speech_features import mfcc
+from python_speech_features import delta
+from python_speech_features import fbank
+import scipy.io.wavfile as wav
+
+
+        self.__audio,self.__sr=wav.read(mfcc_path)
+        self.__mfcc = mfcc(self.__sr,self.__audio,numcep=12,appendEnergy=False)
+        self.__n,self.__mfcc_energy=fbank(self.__sr,self.__audio)
+        self.__mfcc_energy=np.reshape(self.__mfcc_energy,(-1,1))
+        print(self.__mfcc.shape,self.__mfcc_energy.shape)
+        self.__mfcc=np.append(self.__mfcc,self.__mfcc_energy,axis=1)
+
+        self.__mfcc1=d_mfcc_feat = delta(self.__mfcc, 2)
+        self.__mfcc2=d_mfcc_feat = delta(self.__mfcc, 3)
+        self.__mfcc=np.append(self.__mfcc,self.__mfcc1,axis=1)
+        self.__mfcc=np.append(self.__mfcc,self.__mfcc2,axis=1)
+        print(self.__mfcc.shape)
+        self.__Tmfcc=self.__mfcc
