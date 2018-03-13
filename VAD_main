@@ -31,5 +31,5 @@ d.Get_Data(audioFile)
 
 sess=tf.Session()
 rnn=a.RNN_Model_usingMiddle(sess,'RNN',0.001)
-rnn.Restore(application_path+'VADM/RNN')
+rnn.Restore(application_path+'/VADM/RNN')
 result=rnn.Show_Reuslt(d._MFCC,outputName)
