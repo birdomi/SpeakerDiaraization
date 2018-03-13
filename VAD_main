@@ -1,0 +1,30 @@
+import tensorflow as tf
+import numpy as np
+import model_data as a
+import scipy.io.wavfile as wav
+import sys
+
+if(len(sys.argv)<2):
+	print('detector.exe waveFile (Option)outputBorderFilename')
+	sys.exit()
+
+audioFile=sys.argv[1]
+start_time=10    #시작시간 3초보다 커야함.
+
+end_time=start_time+40
+
+index=audioFile.find('.')
+audioName=audioFile[0:index]
+
+if(len(sys.argv)==3):
+	outputName=sys.argv[2]
+else:
+	outputName=audioName
+
+d=a.INPUT_Data()
+d.Get_Data(audioFile)
+
+sess=tf.Session()
+rnn=a.RNN_Model_usingMiddle(sess,'RNN',0.001)
+rnn.Restore('VADM/RNN')
+result=rnn.Show_Reuslt(d._MFCC,outputName)
