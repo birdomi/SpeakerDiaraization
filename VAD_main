@@ -4,6 +4,11 @@ import model_data as a
 import scipy.io.wavfile as wav
 import sys
 
+if getattr(sys, 'frozen', False):
+    application_path = os.path.dirname(sys.executable)
+elif __file__:
+    application_path = os.path.dirname(__file__)
+
 if(len(sys.argv)<2):
 	print('detector.exe waveFile (Option)outputBorderFilename')
 	sys.exit()
@@ -26,5 +31,5 @@ d.Get_Data(audioFile)
 
 sess=tf.Session()
 rnn=a.RNN_Model_usingMiddle(sess,'RNN',0.001)
-rnn.Restore('VADM/RNN')
+rnn.Restore(application_path+'VADM/RNN')
 result=rnn.Show_Reuslt(d._MFCC,outputName)
