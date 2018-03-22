@@ -1,0 +1,287 @@
+import numpy as np
+import tensorflow as tf
+import os 
+import os.path
+from python_speech_features import mfcc
+from python_speech_features import fbank
+from python_speech_features import delta
+import scipy.io.wavfile as wav
+
+testRate=0.8
+audiocut_size=50
+audiocheck_size=200
+class Libri():
+    def __init__(self):
+        self.speaker=[]
+
+    class Speaker():
+        def __init__(self):
+            self.SN=None
+            self.speaker_name=None
+            self.train_mfcc=[]
+            self.test_mfcc=[]    
+
+    def Load(self,file_dir,usingdata):
+        speakers=os.listdir(file_dir)        
+        speakerNumber=0
+        for sp in speakers:            
+            sp_work_dir=file_dir+'/'+sp
+            self.speaker.append(self.Speaker())
+            speakerFile=os.listdir(sp_work_dir)
+            
+            self.speaker[speakerNumber].speaker_name=sp
+            self.speaker[speakerNumber].SN=speakerNumber
+            
+            print(speakerNumber)
+            tmp_train=[];tmp_test=[]
+            for sfile in speakerFile:                
+                curr_work_dir=sp_work_dir+'/'+sfile
+                if(os.path.isdir(curr_work_dir)):
+                    waves=[f for f in os.listdir(curr_work_dir) if f.endswith('.wav')]                   
+                    for wave in waves[0:int(len(waves)*0.8)]:
+                        wave_dir=curr_work_dir+'/'+wave
+                       
+                        sr,audio=wav.read(wave_dir)
+                        if(usingdata=='fbank'):
+                            mfc,_=fbank(audio,sr,nfilt=39)
+                        else:
+                            mfc=mfcc(audio,sr)
+                            delta1=delta(mfc,1)
+                            delta2=delta(mfc,2)
+                            mfc=np.append(mfc,delta1,axis=1)
+                            mfc=np.append(mfc,delta2,axis=1)
+                       
+                        mfc_length=len(mfc)
+                        numberofCut=int(mfc_length/audiocheck_size)
+                        for i in range(numberofCut):
+                            Cut_StartPosition=(i+1)*audiocheck_size-int(audiocheck_size/2)-int(audiocut_size/2)
+                            mfc_tmp=mfc[Cut_StartPosition:Cut_StartPosition+audiocut_size]
+                            tmp_train.append(mfc_tmp)
+                   
+                                              
+                    for wave in waves[int(len(waves)*0.8):-1]:
+                        wave_dir=curr_work_dir+'/'+wave
+                       
+                        sr,audio=wav.read(wave_dir)
+                        if(usingdata=='fbank'):
+                            mfc,_=fbank(audio,sr,nfilt=39)
+                        else:
+                            mfc=mfcc(audio,sr)
+                            delta1=delta(mfc,1)
+                            delta2=delta(mfc,2)
+                            mfc=np.append(mfc,delta1,axis=1)
+                            mfc=np.append(mfc,delta2,axis=1)
+
+                        mfc_length=len(mfc)
+                        numberofCut=int(mfc_length/audiocheck_size)
+                        for i in range(numberofCut):
+                            Cut_StartPosition=(i+1)*audiocheck_size-int(audiocheck_size/2)-int(audiocut_size/2)
+                            mfc_tmp=mfc[Cut_StartPosition:Cut_StartPosition+audiocut_size]
+                            tmp_test.append(mfc_tmp)               
+            
+            self.speaker[speakerNumber].train_mfcc=np.reshape(tmp_train,(-1,audiocut_size,39))
+            self.speaker[speakerNumber].test_mfcc=np.reshape(tmp_test,(-1,audiocut_size,39))
+            print(self.speaker[speakerNumber].speaker_name,self.speaker[speakerNumber].train_mfcc.shape,self.speaker[speakerNumber].test_mfcc.shape)
+            print()
+            speakerNumber+=1
+            
+
+class Model():
+    def __init__(self,sess,name,numberSpeaker,learning_rate):
+        self.sess=sess
+        self.name=name
+        self.numberSpeaker=numberSpeaker
+        self.learning_rate=learning_rate
+        self._build_net()
+
+    def _build_net(self):
+        pass
+    
+    def Outputs(self,x,keep_prob=1.0):
+        return self.sess.run(self.outputs,feed_dict={self.X:x,self.keep_prob:keep_prob})
+
+    def Cost(self,x,y,keep_prob=1.0):
+        return self.sess.run(self.cost,feed_dict={self.X:x,self.Y:y,self.keep_prob:keep_prob})
+
+    def return_ResultMatrix(self,x,y):
+        self.x_prediction=np.reshape(self.Outputs(x),[-1])
+        self.y_prediction=np.reshape(y,[-1])
+
+        self.resultMatrix=np.zeros([2,2],int)
+        for i in range(len(self.x_prediction)):
+            self.resultMatrix[self.y_prediction[i]][self.x_prediction[i]]+=1
+
+        return self.resultMatrix
+
+    def Train(self,x,y,keep_prob=0.9):
+        return self.sess.run([self.cost,self.optimizer],feed_dict={self.X:x,self.Y:y,self.keep_prob:keep_prob})
+
+    def Accuracy(self,x,y,keep_prob=1.0):
+        return self.sess.run(self.accuracy,feed_dict={self.X:x,self.Y:y,self.keep_prob:keep_prob})
+
+    def Save(self,name):
+        saver=tf.train.Saver()
+        saver.save(self.sess, name)
+
+    def Restore(self,name):
+        saver=tf.train.Saver()
+        saver.restore(self.sess,name)
+
+class Speaker_Recognizer_Bilstm3stack_regularization(Model):
+    def _build_net(self):
+        LSTM_layer1=30
+        LSTM_layer2=30
+        LSTM_layer3=30
+        
+        FC_layerOut=self.numberSpeaker
+        
+        self.X=tf.placeholder(tf.float32,[None,audiocut_size,39])
+        self.Y=tf.placeholder(tf.int32,[None,1])
+        self.keep_prob=tf.placeholder(tf.float32)
+
+        self.RNN1_cell=tf.contrib.rnn.LSTMCell(LSTM_layer1,activation=tf.nn.tanh)
+        self.RNN1_cell=tf.contrib.rnn.DropoutWrapper(self.RNN1_cell,1.0,self.keep_prob)
+        self.RNN2_cell=tf.contrib.rnn.LSTMCell(LSTM_layer2,activation=tf.nn.tanh)
+        self.RNN2_cell=tf.contrib.rnn.DropoutWrapper(self.RNN2_cell,1.0,self.keep_prob)
+        self.RNN3_cell=tf.contrib.rnn.LSTMCell(LSTM_layer3,activation=None)
+        self.RNN3_cell=tf.contrib.rnn.DropoutWrapper(self.RNN3_cell,1.0,self.keep_prob)
+
+        self.cell_fw=tf.contrib.rnn.MultiRNNCell([self.RNN1_cell,self.RNN2_cell,self.RNN3_cell])
+        self.cell_bw=tf.contrib.rnn.MultiRNNCell([self.RNN1_cell,self.RNN2_cell,self.RNN3_cell])
+        self.rnn_output,_=tf.nn.bidirectional_dynamic_rnn(self.cell_fw,self.cell_bw,self.X,dtype=tf.float32)
+                
+        self.__rnnout_fw,self.__rnnout_bw=tf.split(self.rnn_output,2,0)
+        self.__rnnout_fw=tf.split(tf.squeeze(self.__rnnout_fw),audiocut_size,axis=1)[-1]
+        self.__rnnout_bw=tf.split(tf.squeeze(self.__rnnout_bw),audiocut_size,axis=1)[0]
+        self.__rnnout=tf.concat([self.__rnnout_fw,self.__rnnout_bw],2)
+        self.fc_input=tf.reshape(self.__rnnout,(-1,LSTM_layer3*2))
+
+        self.fc_out=tf.contrib.layers.fully_connected(self.fc_input,FC_layerOut,activation_fn=None)
+        self.fc_out=tf.reshape(self.fc_out,(-1,self.numberSpeaker))
+
+        self.tv=tf.trainable_variables()
+        self.regularization_cost=tf.reduce_sum=[tf.nn.l2_loss(v) for v in self.tv]
+        self.cost=tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits_v2(logits=self.fc_out,labels=tf.one_hot(self.Y,FC_layerOut)))+self.regularization_cost
+        
+        self.optimizer=tf.train.AdamOptimizer(learning_rate=self.learning_rate).minimize(self.cost)
+        
+        self.output=tf.argmax(self.fc_out,1)
+        self.equal=tf.equal(self.output,tf.cast(self.Y,tf.int64))
+        self.accuracy=tf.reduce_mean(tf.cast(self.equal,tf.float32))
+
+    def check_shape(self,x,y):
+        print(self.sess.run(tf.shape(self.X),feed_dict={self.X:x,self.Y:y}))
+        print(self.sess.run(tf.shape(self.Y),feed_dict={self.X:x,self.Y:y}))
+        print(self.sess.run(tf.shape(self.rnn_output),feed_dict={self.X:x,self.Y:y,self.keep_prob:1.0}))
+        print(self.sess.run(tf.shape(self.__rnnout_fw),feed_dict={self.X:x,self.Y:y,self.keep_prob:1.0}))
+        print(self.sess.run(tf.shape(self.__rnnout_bw),feed_dict={self.X:x,self.Y:y,self.keep_prob:1.0}))
+        print(self.sess.run(tf.shape(self.__rnnout),feed_dict={self.X:x,self.Y:y,self.keep_prob:1.0}))
+        print(self.sess.run(tf.shape(self.fc_input),feed_dict={self.X:x,self.Y:y,self.keep_prob:1.0}))
+        print(self.sess.run(tf.shape(self.fc_out),feed_dict={self.X:x,self.Y:y,self.keep_prob:1.0}))
+        print(self.sess.run(tf.shape(self.output),feed_dict={self.X:x,self.Y:y,self.keep_prob:1.0}))
+
+class Speaker_Recognizer_Bilstm3stack(Model):
+    def _build_net(self):
+        LSTM_layer1=15
+        LSTM_layer2=15
+        LSTM_layer3=15
+        
+        FC_layerOut=self.numberSpeaker
+        
+        self.X=tf.placeholder(tf.float32,[None,audiocut_size,39])
+        self.Y=tf.placeholder(tf.int32,[None,1])
+        self.keep_prob=tf.placeholder(tf.float32)
+
+        self.RNN1_cell=tf.contrib.rnn.LSTMCell(LSTM_layer1,activation=tf.nn.tanh)
+        self.RNN1_cell=tf.contrib.rnn.DropoutWrapper(self.RNN1_cell,1.0,self.keep_prob)
+        self.RNN2_cell=tf.contrib.rnn.LSTMCell(LSTM_layer2,activation=tf.nn.tanh)
+        self.RNN2_cell=tf.contrib.rnn.DropoutWrapper(self.RNN2_cell,1.0,self.keep_prob)
+        self.RNN3_cell=tf.contrib.rnn.LSTMCell(LSTM_layer3,activation=None)
+        self.RNN3_cell=tf.contrib.rnn.DropoutWrapper(self.RNN3_cell,1.0,self.keep_prob)
+
+        self.cell_fw=tf.contrib.rnn.MultiRNNCell([self.RNN1_cell,self.RNN2_cell,self.RNN3_cell])
+        self.cell_bw=tf.contrib.rnn.MultiRNNCell([self.RNN1_cell,self.RNN2_cell,self.RNN3_cell])
+        self.rnn_output,_=tf.nn.bidirectional_dynamic_rnn(self.cell_fw,self.cell_bw,self.X,dtype=tf.float32)
+                
+        self.__rnnout_fw,self.__rnnout_bw=tf.split(self.rnn_output,2,0)
+        self.__rnnout_fw=tf.split(tf.squeeze(self.__rnnout_fw),audiocut_size,axis=1)[-1]
+        self.__rnnout_bw=tf.split(tf.squeeze(self.__rnnout_bw),audiocut_size,axis=1)[0]
+        self.__rnnout=tf.concat([self.__rnnout_fw,self.__rnnout_bw],2)
+        self.fc_input=tf.reshape(self.__rnnout,(-1,LSTM_layer3*2))
+
+        self.fc_out=tf.contrib.layers.fully_connected(self.fc_input,FC_layerOut,activation_fn=None)
+        self.fc_out=tf.reshape(self.fc_out,(-1,self.numberSpeaker))
+
+        self.tv=tf.trainable_variables()
+        self.regularization_cost=tf.reduce_sum=[tf.nn.l2_loss(v) for v in self.tv]
+        self.cost=tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits_v2(logits=self.fc_out,labels=tf.one_hot(self.Y,FC_layerOut)))+self.regularization_cost
+        
+        self.optimizer=tf.train.AdamOptimizer(learning_rate=self.learning_rate).minimize(self.cost)
+        
+        self.output=tf.argmax(self.fc_out,1)
+        self.equal=tf.equal(self.output,tf.cast(self.Y,tf.int64))
+        self.accuracy=tf.reduce_mean(tf.cast(self.equal,tf.float32))
+
+    def check_shape(self,x,y):
+        print(self.sess.run(tf.shape(self.X),feed_dict={self.X:x,self.Y:y}))
+        print(self.sess.run(tf.shape(self.Y),feed_dict={self.X:x,self.Y:y}))
+        print(self.sess.run(tf.shape(self.rnn_output),feed_dict={self.X:x,self.Y:y,self.keep_prob:1.0}))
+        print(self.sess.run(tf.shape(self.__rnnout_fw),feed_dict={self.X:x,self.Y:y,self.keep_prob:1.0}))
+        print(self.sess.run(tf.shape(self.__rnnout_bw),feed_dict={self.X:x,self.Y:y,self.keep_prob:1.0}))
+        print(self.sess.run(tf.shape(self.__rnnout),feed_dict={self.X:x,self.Y:y,self.keep_prob:1.0}))
+        print(self.sess.run(tf.shape(self.fc_input),feed_dict={self.X:x,self.Y:y,self.keep_prob:1.0}))
+        print(self.sess.run(tf.shape(self.fc_out),feed_dict={self.X:x,self.Y:y,self.keep_prob:1.0}))
+        print(self.sess.run(tf.shape(self.output),feed_dict={self.X:x,self.Y:y,self.keep_prob:1.0}))
+
+class Speaker_Recognizer_Bilstm3stack_regularization15(Model):
+    def _build_net(self):
+        LSTM_layer1=15
+        LSTM_layer2=15
+        LSTM_layer3=15
+        
+        FC_layerOut=self.numberSpeaker
+        
+        self.X=tf.placeholder(tf.float32,[None,audiocut_size,39])
+        self.Y=tf.placeholder(tf.int32,[None,1])
+        self.keep_prob=tf.placeholder(tf.float32)
+
+        self.RNN1_cell=tf.contrib.rnn.LSTMCell(LSTM_layer1,activation=tf.nn.tanh)
+        self.RNN1_cell=tf.contrib.rnn.DropoutWrapper(self.RNN1_cell,1.0,self.keep_prob)
+        self.RNN2_cell=tf.contrib.rnn.LSTMCell(LSTM_layer2,activation=tf.nn.tanh)
+        self.RNN2_cell=tf.contrib.rnn.DropoutWrapper(self.RNN2_cell,1.0,self.keep_prob)
+        self.RNN3_cell=tf.contrib.rnn.LSTMCell(LSTM_layer3,activation=None)
+        self.RNN3_cell=tf.contrib.rnn.DropoutWrapper(self.RNN3_cell,1.0,self.keep_prob)
+
+        self.cell_fw=tf.contrib.rnn.MultiRNNCell([self.RNN1_cell,self.RNN2_cell,self.RNN3_cell])
+        self.cell_bw=tf.contrib.rnn.MultiRNNCell([self.RNN1_cell,self.RNN2_cell,self.RNN3_cell])
+        self.rnn_output,_=tf.nn.bidirectional_dynamic_rnn(self.cell_fw,self.cell_bw,self.X,dtype=tf.float32)
+                
+        self.__rnnout_fw,self.__rnnout_bw=tf.split(self.rnn_output,2,0)
+        self.__rnnout_fw=tf.split(tf.squeeze(self.__rnnout_fw),audiocut_size,axis=1)[-1]
+        self.__rnnout_bw=tf.split(tf.squeeze(self.__rnnout_bw),audiocut_size,axis=1)[0]
+        self.__rnnout=tf.concat([self.__rnnout_fw,self.__rnnout_bw],2)
+        self.fc_input=tf.reshape(self.__rnnout,(-1,LSTM_layer3*2))
+
+        self.fc_out=tf.contrib.layers.fully_connected(self.fc_input,FC_layerOut,activation_fn=None)
+        self.fc_out=tf.reshape(self.fc_out,(-1,self.numberSpeaker))
+
+        self.tv=tf.trainable_variables()
+        self.regularization_cost=tf.reduce_sum=[tf.nn.l2_loss(v) for v in self.tv]
+        self.cost=tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits_v2(logits=self.fc_out,labels=tf.one_hot(self.Y,FC_layerOut)))+self.regularization_cost
+        
+        self.optimizer=tf.train.AdamOptimizer(learning_rate=self.learning_rate).minimize(self.cost)
+        
+        self.output=tf.argmax(self.fc_out,1)
+        self.equal=tf.equal(self.output,tf.cast(self.Y,tf.int64))
+        self.accuracy=tf.reduce_mean(tf.cast(self.equal,tf.float32))
+
+    def check_shape(self,x,y):
+        print(self.sess.run(tf.shape(self.X),feed_dict={self.X:x,self.Y:y}))
+        print(self.sess.run(tf.shape(self.Y),feed_dict={self.X:x,self.Y:y}))
+        print(self.sess.run(tf.shape(self.rnn_output),feed_dict={self.X:x,self.Y:y,self.keep_prob:1.0}))
+        print(self.sess.run(tf.shape(self.__rnnout_fw),feed_dict={self.X:x,self.Y:y,self.keep_prob:1.0}))
+        print(self.sess.run(tf.shape(self.__rnnout_bw),feed_dict={self.X:x,self.Y:y,self.keep_prob:1.0}))
+        print(self.sess.run(tf.shape(self.__rnnout),feed_dict={self.X:x,self.Y:y,self.keep_prob:1.0}))
+        print(self.sess.run(tf.shape(self.fc_input),feed_dict={self.X:x,self.Y:y,self.keep_prob:1.0}))
+        print(self.sess.run(tf.shape(self.fc_out),feed_dict={self.X:x,self.Y:y,self.keep_prob:1.0}))
+        print(self.sess.run(tf.shape(self.output),feed_dict={self.X:x,self.Y:y,self.keep_prob:1.0}))
