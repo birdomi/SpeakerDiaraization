@@ -1,0 +1,108 @@
+import model
+import tensorflow as tf
+import numpy as np
+from utils import Logger
+from utils import Time
+from plot_graph import plot_static
+
+
+dmfcc=model.Libri()
+print()
+dmfcc.Load('Libri','mfcc39')
+print('#######')
+for i in range(len(dmfcc.speaker)):
+    print('speaker-{}-{} number_Train-{} number_Test-{}'.format(dmfcc.speaker[i].speaker_name,dmfcc.speaker[i].SN,dmfcc.speaker[i].train_mfcc.shape,dmfcc.speaker[i].test_mfcc.shape))
+print('#######')
+
+speakerNumber=len(dmfcc.speaker)
+
+def runTrain(sess,d,SR,msg=''):
+    sess.run(tf.global_variables_initializer())
+    
+    experiment='{}_{}'.format(SR.name,Time.now())
+    model_path="model/{}".format(experiment)
+    log_path="logs/{}.txt".format(experiment)
+    stat_path="logs/{}.stat".format(experiment)
+        
+    logger=Logger(log_path)
+    stat={"tests":0}
+    
+    num_epoch=10
+    totalTime=Time()
+    for curr_epoch in range(0,num_epoch):
+        cost_sum=0
+        test_cost_sum=0
+        trainTime=Time()
+        for s in range(speakerNumber):            
+            SN=[d.speaker[s].SN]*np.shape(d.speaker[s].train_mfcc)[0]
+            SN=np.reshape(SN,(-1,1))
+            cost,_=SR.Train(d.speaker[s].train_mfcc,SN)
+            cost_sum+=cost
+        avg_cost=cost_sum/speakerNumber    
+        acc=0.0
+        for s in range(speakerNumber):
+            SN=[d.speaker[s].SN]*np.shape(d.speaker[s].train_mfcc)[0]
+            SN=np.reshape(SN,(-1,1))
+            ac=SR.Accuracy(d.speaker[s].train_mfcc,SN)            
+            acc+=ac
+        avg_train_accuracy= acc/speakerNumber
+        
+        acc=0.0
+        test_cost_sum=0
+        for s in range(speakerNumber):
+            SN=[d.speaker[s].SN]*np.shape(d.speaker[s].test_mfcc)[0]
+            SN=np.reshape(SN,(-1,1))
+            cost=SR.Cost(d.speaker[s].test_mfcc,SN)
+            ac=SR.Accuracy(d.speaker[s].test_mfcc,SN)
+            test_cost_sum+=cost
+            acc+=ac
+
+        avg_test_accuracy= acc/speakerNumber
+        avg_test_cost=test_cost_sum/speakerNumber
+        
+        if(avg_test_accuracy>stat["tests"]):
+            stat['tests']=avg_test_accuracy
+            stat['trains']=avg_train_accuracy
+            stat['epoch']=curr_epoch
+            SR.Save(model_path)    
+    
+        log="Epoch {}/{}, l_rate:{:.10f}, cost = {:>7.4f},test cost={:>7.4f}, accracy(train,test/best):({:.4f}, {:.4f}/{:.4f}), time = {}/{}\n".format(
+        		    curr_epoch, num_epoch, SR.learning_rate,avg_cost,avg_test_cost,
+        			avg_train_accuracy,avg_test_accuracy,stat['tests'],trainTime.duration(), totalTime.duration())
+        logger.write(log)
+    summary ="""
+    {}.{}.{}
+            learning_rate : {} num_epoch : {}		
+            Best evaulation based on test_data  :  Accuracy_train  : {}    Accuracy_test :  {}  at epoch :{}\n            
+            """.format(
+        	SR.name,experiment,msg,
+        	SR.learning_rate, num_epoch,
+            stat["trains"],stat["tests"],stat['epoch'])
+                            
+    print(summary)
+    SN=[d.speaker[0].SN]*np.shape(d.speaker[0].test_mfcc)[0]
+    SN=np.reshape(SN,(-1,1))
+    SR.check_shape(d.speaker[0].test_mfcc,SN)
+    logger.flush()
+    logger.close()  
+        
+    plot_static(log_path)
+
+    with open("logs/log.txt","a") as f:
+        f.write(summary)
+
+
+sess=tf.Session()
+SR=model.Speaker_Recognizer_Bilstm3stack_regularization(sess,'3LSTM_RNN_SR_50',len(dmfcc.speaker),0.001)
+runTrain(sess,dmfcc,SR,'3LSTM_RNN model_30*30*30')
+tf.reset_default_graph()
+
+sess=tf.Session()
+SR=model.Speaker_Recognizer_Bilstm3stack(sess,'3Bi-LSTM_RNN_SR_50',len(dmfcc.speaker),0.001)
+runTrain(sess,dmfcc,SR,'3Bi-LSTM model_15*15*15')
+tf.reset_default_graph()
+
+sess=tf.Session()
+SR=model.Speaker_Recognizer_Bilstm3stack_regularization15(sess,'3Bi-LSTM_RNN_SR_50',len(dmfcc.speaker),0.001)
+runTrain(sess,dmfcc,SR,'3Bi-LSTM model_15*15*15')
+tf.reset_default_graph()
