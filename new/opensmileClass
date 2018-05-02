@@ -2,13 +2,13 @@ import numpy as np
 import os
 
 class OpenSmile():
-	def __init__(self,frameSize=0.5,frameStep=0.5):
-		f=open('FrameMode.conf.inc','w')
-		f.write('frameMode = fixed\n')
-		f.write('frameSize = '+str(frameSize)+'\n')
-		f.write('frameStep = '+str(frameStep)+'\n')
-		f.write('frameCenterSpecial = left')
-		f.close()
+	def __init__(self,frameSize=3,frameStep=1):
+		__f=open('FrameMode.conf.inc','w')
+		__f.write('frameMode = fixed\n')
+		__f.write('frameSize = '+str(frameSize)+'\n')
+		__f.write('frameStep = '+str(frameStep)+'\n')
+		__f.write('frameCenterSpecial = left')
+		__f.close()
 
 	def extract(self,wavfile,outputfile='output.csv'):
 		os.system('SMILExtract -C IS10_paraling.conf '+
@@ -16,28 +16,28 @@ class OpenSmile():
 				  ' -frameModeFunctionalsConf FrameMode.conf.inc '+
 				   '-noconsoleoutput')
 		
-		f=open(outputfile,'r')
-		lines=f.readlines()
-		f.close()
+		__f=open(outputfile,'r')
+		lines=__f.readlines()
+		__f.close()
 		
 		os.remove(outputfile)
 
 		vector_no=0
 		for line in lines:
 			if(line[0:9]=="'unknown'"):
-				vector_no+=1
+				vector_no+=1 
 		
 		temp=[]
 		for i in range(1,vector_no+1):
 			array=lines[-i].split(',')
 			array=np.asarray(array[1:-1],dtype=float)
 			temp.append(array)
-					
-		result_FeatureArray=np.reshape(temp,(vector_no,-1))
 		
+		result_FeatureArray=np.reshape(temp,(vector_no,-1))
+		result_FeatureArray=np.flip(result_FeatureArray,0)
 		return result_FeatureArray
 
-openSmile=OpenSmile()
+openSmile=OpenSmile(frameSize=3,frameStep=1)
 features=openSmile.extract('test.wav')
 print(features.shape)
 		
