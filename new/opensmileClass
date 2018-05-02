@@ -1,0 +1,43 @@
+import numpy as np
+import os
+
+class OpenSmile():
+	def __init__(self,frameSize=0.5,frameStep=0.5):
+		f=open('FrameMode.conf.inc','w')
+		f.write('frameMode = fixed\n')
+		f.write('frameSize = '+str(frameSize)+'\n')
+		f.write('frameStep = '+str(frameStep)+'\n')
+		f.write('frameCenterSpecial = left')
+		f.close()
+
+	def extract(self,wavfile,outputfile='output.csv'):
+		os.system('SMILExtract -C IS10_paraling.conf '+
+				  '-I '+wavfile+' -O '+outputfile+
+				  ' -frameModeFunctionalsConf FrameMode.conf.inc '+
+				   '-noconsoleoutput')
+		
+		f=open(outputfile,'r')
+		lines=f.readlines()
+		f.close()
+		
+		os.remove(outputfile)
+
+		vector_no=0
+		for line in lines:
+			if(line[0:9]=="'unknown'"):
+				vector_no+=1
+		
+		temp=[]
+		for i in range(1,vector_no+1):
+			array=lines[-i].split(',')
+			array=np.asarray(array[1:-1],dtype=float)
+			temp.append(array)
+					
+		result_FeatureArray=np.reshape(temp,(vector_no,-1))
+		
+		return result_FeatureArray
+
+openSmile=OpenSmile()
+features=openSmile.extract('test.wav')
+print(features.shape)
+		
