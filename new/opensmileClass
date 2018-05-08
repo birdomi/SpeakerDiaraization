@@ -2,42 +2,45 @@ import numpy as np
 import os
 
 class OpenSmile():
-	def __init__(self,frameSize=3,frameStep=1):
-		__f=open('FrameMode.conf.inc','w')
-		__f.write('frameMode = fixed\n')
-		__f.write('frameSize = '+str(frameSize)+'\n')
-		__f.write('frameStep = '+str(frameStep)+'\n')
-		__f.write('frameCenterSpecial = left')
-		__f.close()
+    def __init__(self,frameSize=fsize,frameStep=fstep):
+        __f=open('FrameMode.conf.inc','w')
+        __f.write('frameMode = fixed\n')
+        __f.write('frameSize = '+str(frameSize)+'\n')
+        __f.write('frameStep = '+str(frameStep)+'\n')
+        __f.write('frameCenterSpecial = left')
+        __f.close()
 
-	def extract(self,wavfile,outputfile='output.csv'):
-		os.system('SMILExtract -C IS10_paraling.conf '+
-				  '-I '+wavfile+' -O '+outputfile+
-				  ' -frameModeFunctionalsConf FrameMode.conf.inc '+
-				   '-noconsoleoutput')
-		
-		__f=open(outputfile,'r')
-		lines=__f.readlines()
-		__f.close()
-		
-		os.remove(outputfile)
+    def Get_features(self,wavfile,start=0,end=-1):
+        csvfile=wavfile.replace('.wav','.csv')
+        if(os.path.exists(csvfile)):
+            r=self.__readCSV(csvfile,start,end)
+        else:
+            self.__extract(wavfile,start,end)
+            r=self.__readCSV(csvfile,start,end)
+        return r
+        
+    def __extract(self,wavfile,start=0,end=-1):
+        outputfile=wavfile.replace('.wav','.csv')
+        os.system('SMILExtract -C IS10_paraling.conf '+
+                  '-I '+wavfile+' -O '+outputfile+
+                  ' -frameModeFunctionalsConf FrameMode.conf.inc')
 
-		vector_no=0
-		for line in lines:
-			if(line[0:9]=="'unknown'"):
-				vector_no+=1 
-		
-		temp=[]
-		for i in range(1,vector_no+1):
-			array=lines[-i].split(',')
-			array=np.asarray(array[1:-1],dtype=float)
-			temp.append(array)
-		
-		result_FeatureArray=np.reshape(temp,(vector_no,-1))
-		result_FeatureArray=np.flip(result_FeatureArray,0)
-		return result_FeatureArray
+    def __readCSV(self,csvfile,start,end):
+        __f=open(csvfile,'r')
+        lines=__f.readlines()
+        __f.close()
 
-openSmile=OpenSmile(frameSize=3,frameStep=1)
-features=openSmile.extract('test.wav')
-print(features.shape)
+        vector_no=0
+        for line in lines:
+            if(line[0:9]=="'unknown'"):
+                vector_no+=1
+        temp=[]
+        for i in range(1,vector_no+1):
+            array=lines[-i].split(',')
+            array=np.asarray(array[1:-1],dtype=float)
+            temp.append(array)
+
+        result_FeatureArray=np.reshape(temp,(vector_no,-1))
+        result_FeatureArray=np.flip(result_FeatureArray,0)[int(start):int(end)]
+        return result_FeatureArray
 		
