@@ -2,25 +2,39 @@ import numpy as np
 import os
 
 class OpenSmile():
-    def __init__(self,frameSize=fsize,frameStep=fstep):
-        __f=open('FrameMode.conf.inc','w')
-        __f.write('frameMode = fixed\n')
-        __f.write('frameSize = '+str(frameSize)+'\n')
-        __f.write('frameStep = '+str(frameStep)+'\n')
-        __f.write('frameCenterSpecial = left')
-        __f.close()
+    def __init__(self,frameSize=10,frameStep=10):
+        self.frameSize=frameSize
+        self.frameStep=frameStep        
 
     def Get_features(self,wavfile,start=0,end=-1):
         csvfile=wavfile.replace('.wav','.csv')
-        if(os.path.exists(csvfile)):
-            r=self.__readCSV(csvfile,start,end)
-        else:
+        if(self.__checkFrameMode()): 
+            #framemode가 없거나 다를경우-> 원하는 csv파일이 없다 -> SMILExtract 후 사용.
+            self.__writeFrameMode()
             self.__extract(wavfile,start,end)
-            r=self.__readCSV(csvfile,start,end)
+            r=self.__readCSV(csvfile,start,end)                        
+        else:            
+            #같은 framemode가 이미 있을 경우
+            if(os.path.exists(csvfile)):#>이미 원하는 csv파일이 출력되어있다.-> csv파일만 읽어옴.
+                r=self.__readCSV(csvfile,start,end)
+            else:                       #>csv파일이 없을 경우 -> SMILExtract 후 ->csv 파일 읽어옴.                
+                self.__extract(wavfile,start,end)
+                r=self.__readCSV(csvfile,start,end) 
         return r
-        
+
+     
+    def __writeFrameMode(self):
+        __f=open('FrameMode.conf.inc','w')
+        __f.write('frameMode = fixed\n')
+        __f.write('frameSize = '+str(self.frameSize)+'\n')
+        __f.write('frameStep = '+str(self.frameStep)+'\n')
+        __f.write('frameCenterSpecial = left')
+        __f.close()
+
     def __extract(self,wavfile,start=0,end=-1):
         outputfile=wavfile.replace('.wav','.csv')
+        if(os.path.exists(outputfile)):
+            os.remove(outputfile)
         os.system('SMILExtract -C IS10_paraling.conf '+
                   '-I '+wavfile+' -O '+outputfile+
                   ' -frameModeFunctionalsConf FrameMode.conf.inc')
@@ -43,4 +57,21 @@ class OpenSmile():
         result_FeatureArray=np.reshape(temp,(vector_no,-1))
         result_FeatureArray=np.flip(result_FeatureArray,0)[int(start):int(end)]
         return result_FeatureArray
-		
+
+    def __checkFrameMode(self):
+        if(os.path.exists('FrameMode.conf.inc')):
+            f=open('FrameMode.conf.inc','r')
+            lines=f.readlines()
+            f.close()
+            if(lines[1]=='frameSize = '+str(self.frameSize)+'\n' 
+               and lines[2]=='frameStep = '+str(self.frameStep)+'\n'):
+                return False
+            else:
+                return True
+        else:
+            return True
+
+if __name__ == '__main__':
+    openSmile=OpenSmile()
+    feature=openSmile.Get_features('waveTemp.wav')
+    print(feature.shape)
