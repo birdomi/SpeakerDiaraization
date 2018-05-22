@@ -1,0 +1,579 @@
+import numpy as np
+import tensorflow as tf
+import os 
+import os.path
+from python_speech_features import mfcc
+from python_speech_features import fbank
+from python_speech_features import delta
+import scipy.io.wavfile as wav
+from scipy import signal
+import matplotlib.pyplot as plt
+
+audiocut_min=int(1*100)#second*100
+audiocut_max=int(1*100)#second*100
+
+fsize=0.5
+fstep=0.5
+
+def log_specgram(audio, sample_rate, window_size=10, 
+                 step_size=10, eps=1e-10):
+    _, _, spec = signal.spectrogram(audio, fs=sample_rate,
+                                    window='hann',
+                                    detrend=False)
+    return np.log(spec.T.astype(np.float32) + eps)
+
+class OpenSmile():
+    def __init__(self,frameMode='fixed',frameList=None,frameSize=10,frameStep=10):
+        self.frameMode=frameMode
+        self.frameList=frameList
+        self.frameSize=frameSize
+        self.frameStep=frameStep        
+
+    def Get_features(self,wavfile,start=0,end=-1):
+        csvfile=wavfile.replace('.wav','.csv')
+        if(self.__checkFrameMode()): 
+            #framemode가 없거나 다를경우-> 원하는 csv파일이 없다 -> SMILExtract 후 사용.
+            self.__writeFrameMode()
+            self.__extract(wavfile,start,end)
+            r=self.__readCSV(csvfile,start,end)                        
+        else:            
+            #같은 framemode가 이미 있을 경우
+            if(os.path.exists(csvfile)):#>이미 원하는 csv파일이 출력되어있다.-> csv파일만 읽어옴.
+                r=self.__readCSV(csvfile,start,end)
+            else:                       #>csv파일이 없을 경우 -> SMILExtract 후 ->csv 파일 읽어옴.                
+                self.__extract(wavfile,start,end)
+                r=self.__readCSV(csvfile,start,end) 
+        return r
+
+     
+    def __writeFrameMode(self):
+        if(self.frameMode=='fixed'):
+            __f=open('FrameMode.conf.inc','w')
+            __f.write('frameMode = fixed\n')
+            __f.write('frameSize = '+str(self.frameSize)+'\n')
+            __f.write('frameStep = '+str(self.frameStep)+'\n')
+            __f.write('frameCenterSpecial = left')
+            __f.close()
+        elif(self.frameMode=='list'):
+            __f=open('FrameMode.conf.inc','w')
+            __f.write('frameMode = list\n')
+            __f.write('frameList = ')
+            for i in range(len(self.frameList)):
+                __f.write(self.frameList[i])
+                
+            __f.write('\n')
+            __f.write('frameCenterSpecial = left')
+            __f.close()
+        else:
+            pass
+
+    def __extract(self,wavfile,framemode=False,start=0,end=-1):
+        outputfile=wavfile.replace('.wav','.csv')
+        if(os.path.exists(outputfile)):
+            os.remove(outputfile)
+        if(framemode):
+            os.system('SMILExtract -C IS09_emotion.conf '+
+                    '-I '+wavfile+' -O '+outputfile+
+                    ' -frameModeFunctionalsConf FrameMode.conf.inc')
+        else:
+            os.system('SMILExtract -C IS09_emotion.conf '+
+                    '-I '+wavfile+' -O '+outputfile)
+
+
+    def __readCSV(self,csvfile,start,end):
+        __f=open(csvfile,'r')
+        lines=__f.readlines()
+        __f.close()
+
+        vector_no=0
+        for line in lines:
+            if(line[0:9]=="'unknown'"):
+                vector_no+=1
+        temp=[]
+        array=lines[-1].split(',')
+        array=np.asarray(array[1:-1],dtype=float)
+
+        result_FeatureArray=array
+        return result_FeatureArray
+
+    def __checkFrameMode(self):
+        if(os.path.exists('FrameMode.conf.inc')):
+            f=open('FrameMode.conf.inc','r')
+            lines=f.readlines()
+            f.close()
+            if(lines[1]=='frameSize = '+str(self.frameSize)+'\n' 
+               and lines[2]=='frameStep = '+str(self.frameStep)+'\n'):
+                return False
+            else:
+                return True
+        else:
+            return True
+class Libri():
+    def __init__(self):
+        self.speaker=[]
+        self.openSmile=OpenSmile()
+
+
+    
+    def makeCompareDataset(self,dataSet,seqLengthSet,SpeakerNo):#it need dataset that returned from method, returnMFCCarray
+        spCPx1=[];spCPx1_length=[];spCPx2=[];spCPx2_length=[];spCPy=[]
+        S=np.arange(dataSet[SpeakerNo].shape[0])
+        np.random.shuffle(S)
+        S=S[:10]           
+        for i in range(len(dataSet)):
+            
+            if(i==SpeakerNo):
+                label=1
+            else:
+                label=0
+            for j in S:
+                a = np.arange(dataSet[i].shape[0])
+                np.random.shuffle(a)
+                if(label==1 and dataSet[i].shape[0]>100):
+                    a=a[:100]
+                elif(label==1 and dataSet[i].shape[0]<100):
+                    a=a
+                else:
+                    a=a[:10]
+
+                for k in a:
+                    spCPx1.append(dataSet[SpeakerNo][j]);spCPx1_length.append(seqLengthSet[SpeakerNo][j])
+                    spCPx2.append(dataSet[i][k]);spCPx2_length.append(seqLengthSet[i][k])
+                    spCPy.append(label)
+        
+        spCPx1=np.reshape(spCPx1,(-1,audiocut_max,39,1));spCPx2=np.reshape(spCPx2,(-1,audiocut_max,39,1))
+        spCPx1_length=np.reshape(spCPx1_length,(-1));spCPx2_length=np.reshape(spCPx2_length,(-1))
+        spCPy=np.reshape(spCPy,(-1,1))
+                
+        return spCPx1,spCPx1_length,spCPx2,spCPx2_length,spCPy
+
+    def returnMFCCarray(self,speakerfile_dir):
+        mfccArray=[]
+        Seq_LengthArray=[]
+        speakerFile=os.listdir(speakerfile_dir)
+        for sfile in speakerFile:   
+            #print(sfile)
+            curr_work_dir=speakerfile_dir+'/'+sfile
+            #print(os.path.isdir(curr_work_dir))
+            if(os.path.isdir(curr_work_dir)):
+                waves=[f for f in os.listdir(curr_work_dir) if f.endswith('.wav')]                   
+                for wave in waves:
+                   wave_dir=curr_work_dir+'/'+wave 
+                   sr,audio=wav.read(wave_dir)
+                   mfc=mfcc(audio,sr)
+                   delta1=delta(mfc,1)
+                   delta2=delta(mfc,2)
+                   mfc=np.append(mfc,delta1,axis=1)
+                   mfc=np.append(mfc,delta2,axis=1)
+                   
+                   mfc_length=len(mfc)
+                   numberofCut=int(mfc_length/audiocut_max)
+                   for i in range(numberofCut):
+                       audiocut_size=200                    
+                       Cut_StartPosition=i*audiocut_max
+                       
+                       Seq_LengthArray.append(audiocut_size)#append Seq_Length
+                       
+                       mfc_tmp=mfc[Cut_StartPosition:Cut_StartPosition+audiocut_size]
+                       
+                       #zeroPad to make seq_length same
+                       zeroPadSize=audiocut_max-audiocut_size
+                       zeroPad=np.zeros((zeroPadSize,39))
+                       #attach zeroPad to mfcc Vector.Shape is changed from (audio_cutsize,39) to (500,39)
+                       mfc_tmp=np.append(mfc_tmp,zeroPad,axis=0)
+                       mfccArray.append(mfc_tmp) 
+        
+        mfccArray=np.reshape(mfccArray,(-1,audiocut_max,39,1))
+        Seq_LengthArray=np.reshape(Seq_LengthArray,(-1))
+        return mfccArray,Seq_LengthArray
+
+
+    def returnSpectrogramarray(self,speakerfile_dir,label):
+        mfccArray=[]; labelArray=[]
+        speakerFile=os.listdir(speakerfile_dir)
+        for sfile in speakerFile:  
+            curr_work_dir=speakerfile_dir+'/'+sfile
+            if(os.path.isdir(curr_work_dir)):
+                waves=[f for f in os.listdir(curr_work_dir) if f.endswith('.wav')]                   
+                for wave in waves:
+                   wave_dir=curr_work_dir+'/'+wave 
+                   sr,audio=wav.read(wave_dir)
+                   spec=log_specgram(audio,sr)
+
+                   spec_length=len(spec)
+                   if(int(spec_length)>250):
+                      numberofCut=1
+                   else:
+                      numberofCut=0
+                   for i in range(numberofCut):
+                       audiocut_size=100                    
+                       Cut_StartPosition=i*audiocut_max                       
+                       spec_tmp=spec[50+Cut_StartPosition:50+Cut_StartPosition+audiocut_size]
+                       labelArray.append(label)
+                       mfccArray.append(spec_tmp) 
+        
+        mfccArray=np.reshape(mfccArray,(-1,audiocut_size,129,1))
+        train=mfccArray[:int(len(mfccArray)*0.8)];test=mfccArray[int(len(mfccArray)*0.8):]
+        labelArray=np.reshape(labelArray,(-1,1))
+        trainLabel=labelArray[:int(len(mfccArray)*0.8)];testLabel=labelArray[int(len(mfccArray)*0.8):]
+        return train,test,trainLabel,testLabel
+
+    def makeSpecDataset(self,dataSet,seqLengthSet,SpeakerNo,Start=0):#it need dataset that returned from method, returnSpectrogramarray
+        spCPx1=[];spCPx1_length=[];spCPx2=[];spCPx2_length=[];spCPy=[]
+        S=np.arange(dataSet[SpeakerNo].shape[0])
+        np.random.shuffle(S)
+        S=S[:10]           
+        for i in range(Start,Start+len(dataSet)):
+            
+            if(i==SpeakerNo):
+                label=1
+            else:
+                label=0
+            for j in S:
+                a = np.arange(dataSet[i].shape[0])
+                np.random.shuffle(a)
+                if(label==1 and dataSet[i].shape[0]>30):
+                    a=a[:30]
+                elif(label==1 and dataSet[i].shape[0]<30):
+                    a=a
+                else:
+                    a=a[:3]
+
+                for k in a:
+                    spCPx1.append(dataSet[SpeakerNo][j]);spCPx1_length.append(seqLengthSet[SpeakerNo][j])
+                    spCPx2.append(dataSet[i][k]);spCPx2_length.append(seqLengthSet[i][k])
+                    spCPy.append(label)
+        
+        spCPx1=np.reshape(spCPx1,(-1,audiocut_max,129,1));spCPx2=np.reshape(spCPx2,(-1,audiocut_max,129,1))
+        spCPx1_length=np.reshape(spCPx1_length,(-1));spCPx2_length=np.reshape(spCPx2_length,(-1))
+        spCPy=np.reshape(spCPy,(-1,1))
+                
+        return spCPx1,spCPx1_length,spCPx2,spCPx2_length,spCPy
+
+    def returnSmileArray(self,speakerfile_dir):
+        mfccArray=[]
+        speakerFile=os.listdir(speakerfile_dir)
+        for sfile in speakerFile:   
+            #print(sfile)
+            curr_work_dir=speakerfile_dir+'/'+sfile
+            #print(os.path.isdir(curr_work_dir))
+            if(os.path.isdir(curr_work_dir)):
+                waves=[f for f in os.listdir(curr_work_dir) if f.endswith('.wav')]                   
+                for wave in waves:
+                   wave_dir=curr_work_dir+'/'+wave 
+                   
+                   mfc_tmp=self.openSmile.Get_features(wave_dir)
+                   mfccArray.append(mfc_tmp) 
+        
+        mfccArray=np.reshape(mfccArray,(-1,384))
+        print(mfccArray.shape)
+        return mfccArray
+
+    def makeSmileDataset(self,dataSet,SpeakerNo,Start=0):#it need dataset that returned from method, returnSpectrogramarray
+        spCPx1=[];spCPx2=[];spCPy=[]
+        S=np.arange(dataSet[SpeakerNo].shape[0])
+        np.random.shuffle(S)
+        S=S[:10]           
+        for i in range(Start,Start+len(dataSet)):
+            
+            if(i==SpeakerNo):
+                label=1
+            else:
+                label=0
+            for j in S:
+                a = np.arange(dataSet[i].shape[0])
+                np.random.shuffle(a)
+                if(label==1 and dataSet[i].shape[0]>30):
+                    a=a[:30]
+                elif(label==1 and dataSet[i].shape[0]<30):
+                    a=a
+                else:
+                    a=a[:3]
+
+                for k in a:
+                    spCPx1.append(dataSet[SpeakerNo][j])
+                    spCPx2.append(dataSet[i][k])
+                    spCPy.append(label)
+        
+        spCPx1=np.reshape(spCPx1,(-1,384));spCPx2=np.reshape(spCPx2,(-1,384))
+        spCPy=np.reshape(spCPy,(-1,1))
+                
+        return spCPx1,spCPx2,spCPy
+    
+            
+            
+
+class Model():
+    def __init__(self,sess,name,learning_rate):
+        self.sess=sess
+        self.name=name
+        self.learning_rate=learning_rate
+        self._build_net()
+        
+
+    def _build_net(self):
+        pass
+    
+    def Outputs(self,x1,x1Leng,x2,x2Leng,keep_prob=1.0):
+        return self.sess.run(self.output,feed_dict={self.X1:x1,self.Seq_Length1:x1Leng,self.X2:x2,self.Seq_Length2:x2Leng,self.keep_prob:keep_prob})
+
+    def Cost(self,x1,x1Leng,x2,x2Leng,y,keep_prob=1.0):
+        return self.sess.run(self.cost,feed_dict={self.X1:x1,self.Seq_Length1:x1Leng,self.X2:x2,self.Seq_Length2:x2Leng,self.Y:y,self.keep_prob:keep_prob})
+
+    def Train(self,x1,x1Leng,x2,x2Leng,y,keep_prob=0.8):
+        return self.sess.run(self.optimizer,feed_dict={self.X1:x1,self.Seq_Length1:x1Leng,self.X2:x2,self.Seq_Length2:x2Leng,self.Y:y,self.keep_prob:keep_prob})
+    
+    def AccuracyX(self,x1,x1Leng,x2,x2Leng,y,keep_prob=1.0):
+        x=self.Outputs(x1,x1Leng,x2,x2Leng)
+        correct0=0;correct1=0;number0=0;number1=0;
+
+        for i in range(len(y)):
+            if(y[i]==0):
+                number0+=1
+                if(x[i]==0):
+                    correct0+=1
+            else:
+                number1+=1
+                if(x[i]==1):
+                    correct1+=1
+        return correct0,number0,correct1,number1
+
+
+    def Save(self,name):
+        saver=tf.train.Saver()
+        saver.save(self.sess, name)
+
+    def Restore(self,name):
+        saver=tf.train.Saver()
+        saver.restore(self.sess,name)
+class SpeakerComparerCNN(Model):
+    def _build_net(self):
+        FC1=3000
+        FC2=3000
+        FC3=3000
+        FC4=3000
+        FC5=3000
+        FC_Out=1
+
+        self.X1=tf.placeholder(tf.float32,[None,audiocut_max,129,1])
+        self.Seq_Length1=tf.placeholder(tf.int32,[None])
+        self.X2=tf.placeholder(tf.float32,[None,audiocut_max,129,1])
+        self.Seq_Length2=tf.placeholder(tf.int32,[None])
+        self.Y=tf.placeholder(tf.float32,[None,1])
+        
+        self.keep_prob=tf.placeholder(tf.float32)  
+
+        with tf.variable_scope('cnn1'):
+            self.L1_1 = tf.layers.conv2d(inputs=self.X1, filters=4, kernel_size=2,padding='same',activation=tf.nn.relu)            
+            self.L1_1 = tf.layers.max_pooling2d(self.L1_1,2,2)
+            
+            
+            self.L2_1 = tf.layers.conv2d(inputs=self.L1_1, filters=16, kernel_size=2,padding='same',activation=tf.nn.relu)
+            self.L2_1 = tf.layers.max_pooling2d(self.L2_1,2,2)
+            self.L3_1 = tf.layers.conv2d(inputs=self.L2_1, filters=8, kernel_size=2,padding='same',activation=tf.nn.relu)
+            self.L4_1 = tf.layers.conv2d(inputs=self.L3_1, filters=8, kernel_size=2,padding='same',activation=tf.nn.relu)
+            self.L5_1 = tf.layers.conv2d(inputs=self.L4_1, filters=8, kernel_size=2,padding='same',activation=tf.nn.relu)
+            self.L6_1 = tf.layers.conv2d(inputs=self.L5_1, filters=8, kernel_size=2,padding='same',activation=tf.nn.relu)
+
+            self.L7_1 = tf.layers.conv2d(inputs=self.L6_1, filters=16, kernel_size=2,padding='same',activation=tf.nn.relu)
+            self.L7_1 = tf.layers.max_pooling2d(self.L7_1,2,2)
+            
+            self.Conv1_Out=tf.layers.flatten(self.L3_1)
+
+        with tf.variable_scope('cnn2'):
+            self.L1_2 = tf.layers.conv2d(inputs=self.X2, filters=4, kernel_size=2,padding='same',activation=tf.nn.relu)
+            self.L1_2 = tf.layers.max_pooling2d(self.L1_2,2,2)
+            
+            self.L2_2 = tf.layers.conv2d(inputs=self.L1_2, filters=8, kernel_size=2,padding='same',activation=tf.nn.relu)
+            self.L2_2 = tf.layers.max_pooling2d(self.L2_2,2,2)
+            self.L3_2 = tf.layers.conv2d(inputs=self.L2_2, filters=8, kernel_size=2,padding='same',activation=tf.nn.relu)
+            self.L4_2 = tf.layers.conv2d(inputs=self.L3_2, filters=8, kernel_size=2,padding='same',activation=tf.nn.relu)
+            self.L5_2 = tf.layers.conv2d(inputs=self.L4_2, filters=8, kernel_size=2,padding='same',activation=tf.nn.relu)
+            self.L6_2 = tf.layers.conv2d(inputs=self.L5_2, filters=8, kernel_size=2,padding='same',activation=tf.nn.relu)
+            
+            self.L7_2 = tf.layers.conv2d(inputs=self.L6_2, filters=16, kernel_size=2,padding='same',activation=tf.nn.relu)
+            self.L7_2 = tf.layers.max_pooling2d(self.L7_2,2,2)
+
+            self.Conv2_Out=tf.layers.flatten(self.L3_2)
+
+        self.fc_input=tf.concat([self.Conv1_Out,self.Conv2_Out],axis=1)
+        #self.fc_input=tf.reshape(self.concat,[None,tf.shape(self.concat)[1]])
+        self.FC1=tf.layers.dense(self.fc_input,units=FC1,activation=tf.nn.relu)
+        self.FC1 = tf.layers.dropout(self.FC1)
+        self.FC2=tf.layers.dense(self.fc_input,units=FC2,activation=tf.nn.relu)
+        self.FC2 = tf.layers.dropout(self.FC2)
+        self.FC3=tf.layers.dense(self.fc_input,units=FC3,activation=tf.nn.relu)
+        self.FC3 = tf.layers.dropout(self.FC3)
+        self.FC4=tf.layers.dense(self.fc_input,units=FC4,activation=tf.nn.relu)
+        self.FC4 = tf.layers.dropout(self.FC4)
+        self.FC5=tf.layers.dense(self.FC4,units=FC5,activation=tf.nn.relu)
+        self.FC5 = tf.layers.dropout(self.FC5)
+        self.FC1_out=tf.contrib.layers.fully_connected(self.FC5,FC_Out,activation_fn=None)
+
+        self.cost=tf.reduce_mean(tf.nn.weighted_cross_entropy_with_logits(self.Y,self.FC1_out,1.15))
+        self.optimizer=tf.train.AdamOptimizer(learning_rate=self.learning_rate).minimize(self.cost)
+
+        self.output=tf.greater(tf.sigmoid(self.FC1_out),0.5)
+
+class SpeakerComparer(Model):
+    def _build_net(self):
+        LSTM_layer1=39
+        LSTM_layer2=39
+        LSTM_layer3=39
+        LSTM_layer4=39
+
+        FC1=78*4
+        FC2=78*4
+        FC3=78*4
+        FC_Out=1
+        self.X1=tf.placeholder(tf.float32,[None,audiocut_max,39])
+        self.Seq_Length1=tf.placeholder(tf.int32,[None])
+        self.X2=tf.placeholder(tf.float32,[None,audiocut_max,39])
+        self.Seq_Length2=tf.placeholder(tf.int32,[None])
+        self.Y=tf.placeholder(tf.float32,[None,1])
+        
+        self.keep_prob=tf.placeholder(tf.float32)  
+
+        with tf.variable_scope('lstm1'):
+            self.RNN1_1=tf.contrib.rnn.LSTMCell(LSTM_layer1)
+            self.RNN1_2=tf.contrib.rnn.LSTMCell(LSTM_layer2)
+            self.RNN1_3=tf.contrib.rnn.LSTMCell(LSTM_layer3)
+            self.RNN1_4=tf.contrib.rnn.LSTMCell(LSTM_layer4)        
+            self.cell1=tf.contrib.rnn.MultiRNNCell([self.RNN1_1,self.RNN1_2,self.RNN1_3,self.RNN1_4])
+            self.output1,_=tf.nn.bidirectional_dynamic_rnn(self.cell1,self.cell1,self.X1,dtype=tf.float32,sequence_length=self.Seq_Length1)
+            
+        with tf.variable_scope('lstm2'):
+            self.RNN2_1=tf.contrib.rnn.LSTMCell(LSTM_layer1)
+            self.RNN2_2=tf.contrib.rnn.LSTMCell(LSTM_layer2)
+            self.RNN2_3=tf.contrib.rnn.LSTMCell(LSTM_layer3)
+            self.RNN2_4=tf.contrib.rnn.LSTMCell(LSTM_layer4)
+            self.cell2=tf.contrib.rnn.MultiRNNCell([self.RNN2_1,self.RNN2_2,self.RNN2_3,self.RNN2_4])
+            self.output2,_=tf.nn.bidirectional_dynamic_rnn(self.cell2,self.cell2,self.X2,dtype=tf.float32,sequence_length=self.Seq_Length2)  
+        
+        self.rnnout1=tf.concat(self.output1,2);self.rnnout2=tf.concat(self.output2,2)
+
+        self.rnnoutSplit1=tf.split(tf.squeeze(self.rnnout1),audiocut_max,axis=1)
+        self.rnnoutSplit2=tf.split(tf.squeeze(self.rnnout2),audiocut_max,axis=1)
+        #self.omit_zeros1 = tf.boolean_mask(self.rnnoutSplit1, tf.not_equal(self.rnnoutSplit1, 0))
+        #self.omit_zeros2 = tf.boolean_mask(self.rnnoutSplit2, tf.not_equal(self.rnnoutSplit2, 0))
+
+        self.rnn1f=self.rnnoutSplit1[0];self.rnn1l=self.rnnoutSplit1[-1]
+        self.rnn2f=self.rnnoutSplit2[0];self.rnn2l=self.rnnoutSplit2[-1]
+        self.rnnout=tf.concat([self.rnn1f,self.rnn1l,self.rnn2f,self.rnn2l],axis=2)
+        
+        self.fc_input=tf.reshape(self.rnnout,(-1,LSTM_layer4*2*4))
+        self.FC1=tf.contrib.layers.fully_connected(self.fc_input,FC1)
+        self.FC2=tf.contrib.layers.fully_connected(self.FC1,FC2)
+        self.FC3=tf.contrib.layers.fully_connected(self.FC2,FC3)
+        self.FC1_out=tf.contrib.layers.fully_connected(self.fc_input,FC_Out,activation_fn=None)
+
+        self.cost=tf.reduce_mean(tf.nn.weighted_cross_entropy_with_logits(self.Y,self.FC1_out,1.1))
+        self.optimizer=tf.train.AdamOptimizer(learning_rate=self.learning_rate).minimize(self.cost)
+
+        self.output=tf.greater(tf.sigmoid(self.FC1_out),0.5)
+
+    def show_Shape(self,x1,x1Leng,x2,x2Leng,y,keep_prob=1.0):
+        print(self.sess.run(self.rnnout,feed_dict={self.X1:x1,self.Seq_Length1:x1Leng,self.X2:x2,self.Seq_Length2:x2Leng,self.Y:y,self.keep_prob:keep_prob}))
+
+class SpeakerComparerFCN():
+    def __init__(self,sess,name,learning_rate):
+        self.sess=sess
+        self.name=name
+        self.learning_rate=learning_rate
+        self._build_net()
+    def _build_net(self):
+        FC1=384*2
+        FC2=384*2
+        FC3=384*2
+        FC4=384*2
+        FC5=384*1
+        FC6=384*1
+        FC7=384*1
+        FC8=384*1
+        FC9=384*1
+        FC_Out=1
+        self.X1=tf.placeholder(tf.float32,[None,384])
+        self.X2=tf.placeholder(tf.float32,[None,384])
+        self.Y=tf.placeholder(tf.float32,[None,1])        
+        self.keep_prob=tf.placeholder(tf.float32)  
+        
+
+        self.fc_input=tf.concat([self.X1,self.X2],axis=1)
+        
+        self.FC1=tf.layers.dense(self.fc_input,FC1,tf.nn.relu)
+        self.FC2=tf.layers.dense(self.FC1,FC2,tf.nn.relu)
+        self.FC3=tf.layers.dense(self.FC2,FC3,tf.nn.relu)
+        self.FC4=tf.layers.dense(self.FC3,FC4,tf.nn.relu)
+        self.FC5=tf.layers.dense(self.FC4,FC5,tf.nn.relu)
+        self.FC6=tf.layers.dense(self.FC5,FC6,tf.nn.relu)
+        self.FC7=tf.layers.dense(self.FC6,FC7,tf.nn.relu)
+        self.FC8=tf.layers.dense(self.FC7,FC8,tf.nn.relu)
+        self.FC9=tf.layers.dense(self.FC8,FC9,tf.nn.relu)
+        self.FC_out=tf.layers.dense(self.FC9,FC_Out)
+
+        self.cost=tf.reduce_mean(tf.nn.weighted_cross_entropy_with_logits(self.Y,self.FC_out,1.1))
+        self.optimizer=tf.train.AdamOptimizer(learning_rate=self.learning_rate).minimize(self.cost)
+
+        self.output=tf.greater(tf.sigmoid(self.FC_out),0.5)
+
+    def show_Shape(self,x1,x2,y,keep_prob=1.0):
+        print(self.sess.run(self.rnnout,feed_dict={self.X1:x1,self.X2:x2,self.Y:y,self.keep_prob:keep_prob}))
+
+
+
+class SpeakerRecognizerCNN():
+    def __init__(self,sess,name,learning_rate,speakerNo):
+        self.sess=sess
+        self.name=name
+        self.learning_rate=learning_rate
+        self.speakerNo=speakerNo
+        self._build_net()
+
+    def _build_net(self):
+        FC1=2048
+        FC_Out=self.speakerNo
+
+        self.X=tf.placeholder(tf.float32,[None,audiocut_max,129,1])
+        self.Y=tf.placeholder(tf.int64,[None,1])
+        
+        self.keep_prob=tf.placeholder(tf.float32)  
+
+        self.L1_1 = tf.layers.conv2d(inputs=self.X, filters=64, kernel_size=3,padding='same',activation=tf.nn.relu)            
+        self.L2_1 = tf.layers.conv2d(inputs=self.L1_1, filters=64, kernel_size=3,padding='same',activation=tf.nn.relu)
+        self.L2_1 = tf.layers.max_pooling2d(self.L2_1,2,2)   
+         
+        self.L3_1 = tf.layers.conv2d(inputs=self.L2_1, filters=128, kernel_size=3,padding='same',activation=tf.nn.relu)
+        self.L4_1 = tf.layers.conv2d(inputs=self.L3_1, filters=128, kernel_size=3,padding='same',activation=tf.nn.relu)
+        self.L4_1 = tf.layers.max_pooling2d(self.L4_1,2,2)
+
+            
+        self.Conv1_Out=tf.layers.flatten(self.L4_1)
+        self.FC=tf.layers.dense(self.Conv1_Out,FC1,activation=tf.nn.relu)
+        self.FC=tf.layers.dropout(self.FC)
+        self.FC_out=tf.layers.dense(self.FC,FC_Out)
+
+        self.cost=tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits_v2(logits=self.FC_out,labels=tf.one_hot(self.Y,FC_Out)))
+        self.optimizer=tf.train.AdamOptimizer(learning_rate=self.learning_rate).minimize(self.cost)
+
+        self.output=tf.argmax(self.FC_out,1)
+        self.accuracy=tf.reduce_mean(tf.cast(tf.equal(self.output,self.Y),tf.float32))
+            
+    def Outputs(self,x,keep_prob=1.0):
+        return self.sess.run(self.output,feed_dict={self.X:x,self.keep_prob:keep_prob})
+
+    def Cost(self,x,y,keep_prob=1.0):
+        return self.sess.run(self.cost,feed_dict={self.X:x,self.Y:y,self.keep_prob:keep_prob})
+
+    def Train(self,x,y,keep_prob=0.8):
+        return self.sess.run(self.optimizer,feed_dict={self.X:x,self.Y:y,self.keep_prob:keep_prob})
+
+    def Accuracy(self,x,y,keep_prob=1.0):
+        return self.sess.run(self.accuracy, feed_dict={self.X:x,self.Y:y,self.keep_prob:keep_prob})
+
+    def Save(self,name):
+        saver=tf.train.Saver()
+        saver.save(self.sess, name)
+
+    def Restore(self,name):
+        saver=tf.train.Saver()
+        saver.restore(self.sess,name)
