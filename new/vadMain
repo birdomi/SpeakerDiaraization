@@ -1,0 +1,64 @@
+import tensorflow as tf
+import a
+import os
+import sys
+
+if getattr(sys, 'frozen', False):
+    # If the application is run as a bundle, the pyInstaller bootloader
+    # extends the sys module by a flag frozen=True and sets the app 
+    # path into variable _MEIPASS'.
+    application_path = sys._MEIPASS
+else:
+    application_path = os.path.dirname(os.path.abspath(__file__))
+
+print(application_path)
+if(len(sys.argv)==2):
+    waveFile=sys.argv[1]
+    index=waveFile.find('.')
+    waveName=waveFile[0:index]
+    borderFile=waveName
+    threshold=0.5
+    mdt=0.1
+
+elif(len(sys.argv)==3):
+    waveFile=sys.argv[1]
+    borderFile=sys.argv[2]
+    threshold=0.5
+    mdt=0.1
+    
+elif(len(sys.argv)==4):
+    waveFile=sys.argv[1]
+    borderFile=sys.argv[2]
+    threshold=float(sys.argv[3])
+    if(threshold>1):
+        threshold=1
+    if(threshold<0):
+        threshold=0
+    mdt=0.1
+
+elif(len(sys.argv)==5):
+    waveFile=sys.argv[1]
+    borderFile=sys.argv[2]
+    threshold=float(sys.argv[3])
+    if(threshold>1):
+        threshold=1
+    if(threshold<0):
+        threshold=0
+    mdt=float(sys.argv[4])
+
+else:
+    print('다음과 같이 실행시켜주세요.\n')
+    print('detetor.exe    wavefileDirectory  (Option)borderfileName (Option)threshold (option)minimal detect time\n')
+    print('디텍터.exe     입력시킬wav파일    (옵션)출력시킬bdr파일이름 (Option)threshold (option)minimal detect time\n')
+    print('threshold (default=0.5) - threshold는 0에서 1사이, 한 프레임마다 얻어진 6개의 결과를 통해서 얻어진 평균이 threshold값 이상이면 발화구간, threshold값 미만이면 침묵구간으로 판정\n')
+    print('minimal detect time (default=0.1) - 얻어진 침묵구간이 minimal detect time(초)보다 길 경우에만 출력(v2에 저장됨)\n')
+    sys.exit()
+
+d=a.INPUT_Data()
+d.Get_Data(waveFile)
+
+sess=tf.Session()
+rnn=a.RNN_Model_usingMiddle(sess,'RNN_middle_hamming',0.001)
+sess.run(tf.global_variables_initializer())
+rnn.Restore(str(application_path+'\\VADM\\VAD').encode('UTF-8'))
+rnn.Show_Reuslt(d._MFCC,borderFile,threshold,mdt)
