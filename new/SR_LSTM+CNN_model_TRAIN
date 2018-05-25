@@ -1,0 +1,141 @@
+import model
+import tensorflow as tf
+import numpy as np
+import os
+from plot_graph import plot_static
+from utils import Logger
+from utils import Time
+import gc
+from sklearn.cluster import *
+
+
+batch_size=150
+Libri_Path='wave'
+ 
+wav_path=os.listdir(Libri_Path)
+speakerNo=len(wav_path)
+print(speakerNo)
+print('#######훈련용')
+libri=model.Libri()
+#################################훈련용
+testData={};trainData={}
+train,test,trlabel,tstlabel=libri.returnLog_Mel_Spectrogram(Libri_Path+'/'+wav_path[0],0)
+testData[0]=(test,tstlabel)
+trainData[0]=(train,trlabel)
+for i in range(1,10):
+    tr,te,trl,tel=libri.returnLog_Mel_Spectrogram(Libri_Path+'/'+wav_path[i],i)
+    train=np.append(train,tr,axis=0); trlabel=np.append(trlabel,trl,axis=0)
+    testData[i]=(te,tel)
+    trainData[i]=(tr,trl)
+    print(i)
+print(train.shape,test.shape)
+print('#######')
+dataSize=len(train)
+d=[]
+for i in range(dataSize):
+    d.append((train[i],trlabel[i]))
+np.random.shuffle(d)
+x=[];y=[]
+for i in range(len(d)):
+    x.append(d[i][0])
+    y.append(d[i][1])
+x=np.reshape(x,(-1,100,128,1))
+y=np.reshape(y,(-1,1))
+print(x.shape,y.shape)
+
+batchNo=int(dataSize/batch_size)
+data={}
+for i in range(batchNo):
+    data[i]=(x[i*batch_size:(i+1)*batch_size],y[i*batch_size:(i+1)*batch_size])
+x=None
+y=None
+gc.collect()
+
+sess=tf.Session()
+SR=model.BILSTM_CNN_SR(sess,'BILSTM_CNN_SR',0.000001,speakerNo)
+SR.Restore('save/SR')
+for i in range(10):
+    print(SR.Outputs(trainData[i][0]))
+
+###########################
+#모델 훈련 함수
+
+def runTrain(sess,comparer,msg):
+    sess.run(tf.global_variables_initializer())
+    
+    experiment='{}_{}'.format(comparer.name,Time.now())
+    model_path="./model/{}.ckpt".format(experiment)
+    log_path="SAVE_Logs/{}.txt".format(experiment)
+    stat_path="SAVE_Logs/{}.stat".format(experiment)
+        
+    logger=Logger(log_path)
+    stat={"tests":0}    
+
+    num_epoch=100
+    totalTime=Time()
+    for curr_epoch in range(0,num_epoch):  
+        trainTime=Time()
+        avg_train_accuracy=0;cost_sum=0
+        avg_test_accuracy=0;test_cost_sum=0
+        for j in range(batchNo):
+            comparer.Train(data[j][0],data[j][1])
+        
+        for j in range(batchNo):
+            #o1,o2,o3,o4=comparer.printConv(data[j][0])
+            c=comparer.Cost(data[j][0],data[j][1])
+            cost_sum+=c
+            #print(o4)         
+            acc=comparer.Accuracy(data[j][0],data[j][1])
+            avg_train_accuracy+=acc
+
+        train_cost=cost_sum/batchNo
+        avg_train_accuracy=avg_train_accuracy/batchNo
+
+        for j in range(speakerNo):
+            c=comparer.Cost(testData[j][0],testData[j][1])
+            test_cost_sum+=c
+
+            acc=comparer.Accuracy(testData[j][0],testData[j][1])
+            avg_test_accuracy+=acc
+
+        test_cost=test_cost_sum/speakerNo
+        avg_test_accuracy=avg_test_accuracy/speakerNo
+        
+        if(avg_test_accuracy>stat["tests"]):
+            stat['tests']=avg_test_accuracy
+            stat['trains']=avg_train_accuracy
+            stat['epoch']=curr_epoch
+            stat['cost']=train_cost
+            stat['traincost']=test_cost
+
+            comparer.Save(model_path)    
+        log="Epoch {}/{}, l_rate:{:.6f},trainSet cost = {:>7.4f},testSet cost={:>7.4f}, accracy(train,test/best):({:.4f}, {:.4f}/{:.4f}),time = {}/{}\n".format(
+        		    curr_epoch, num_epoch, comparer.learning_rate,train_cost,test_cost,
+        			avg_train_accuracy,avg_test_accuracy,stat['tests'],trainTime.duration(), totalTime.duration())
+        logger.write(log)
+    summary ="""
+    {}.{}.{}
+            learning_rate : {} train_data_ratio : {}  num_epoch : {}	
+            Best evaulation based on test_data  :  Accuracy_train: {}    Accuracy_test: {}  at epoch :{}
+    """.format(
+        	comparer.name,experiment,msg,
+        	comparer.learning_rate, '8:2', num_epoch,
+                            stat['trains'],
+        					stat['tests'],stat['epoch'])
+    print(summary)
+    logger.flush()
+    logger.close()  
+        
+    plot_static(log_path)
+
+    with open("SAVE_Logs/log.txt","a") as f:
+        f.write(summary)
+#########
+#실행
+
+"""
+sess=tf.Session()
+SR=model.BILSTM_CNN_SR(sess,'BILSTM_CNN_SR',0.000001,speakerNo)
+runTrain(sess,SR,'BILSTM_CNN_SR')
+tf.reset_default_graph()
+"""
