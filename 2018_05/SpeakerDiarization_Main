@@ -1,0 +1,97 @@
+import tensorflow as tf
+import numpy as np
+import os
+import ut
+import sklearn.cluster
+
+def clusteringAcc(cluster,ground_truth,number):
+    no={}
+    correct={}
+    all={}
+    accuracy={}
+
+    for i in range(number):
+        correct[i]=0
+        all[i]=0
+
+        for j in range(4):
+            no[str(i)+str(j)]=0
+
+    for i in range(len(cluster)):
+        no[str(cluster[i])+str(ground_truth[i])]+=1
+
+    for i in range(number):
+        maxcluster=0
+        cluster=-1
+        for j in range(number):
+            all[i]+=no[str(i)+str(j)]
+            if(maxcluster<no[str(i)+str(j)]):
+                maxcluster=no[str(i)+str(j)]
+                cluster=j
+        correct[i]=no[str(i)+str(cluster)]
+
+        accuracy[i]=(correct[i]/all[i],'truth: '+str(cluster))
+        #print(no)
+    return accuracy,no
+            
+
+CALLHOME=ut.CALLHOME_Data()
+
+
+wavPath='CALLHOME/Signals'
+labPath='CALLHOME/transcripts'
+mfcc=os.listdir(wavPath)
+label_path=os.listdir(labPath)
+
+mfcc_path=[]
+for i in range(len(mfcc)):
+    if(mfcc[i][-4:]=='.csv'):
+        pass
+    else:
+        mfcc_path.append(mfcc[i]) 
+
+
+
+
+print(len(mfcc_path),len(label_path))
+datanum=1#len(mfcc_path)
+
+acc=[];no=[]
+for i in range(datanum):  
+    label,speaker,startPoint,endPoint=CALLHOME.return_Labeling(labPath+'/'+label_path[i])
+    print(startPoint,endPoint)
+    print(speaker.shape)
+
+    sess=tf.Session()
+    rnn=ut.VAD_Model(sess,'RNN_',0.001)
+    rnn.Restore('VADM/VAD')#application_path+
+
+    mfcc_x=ut.INPUT_Data().Get_Data(wavPath+'/'+mfcc_path[i])
+    print(mfcc_x.shape)
+    timesegment=rnn.voiceTimeSegment(mfcc_x)
+    #print(timesegment)
+    timesegment,groundTruth=CALLHOME.SegmentGroundTruth(timesegment,startPoint,endPoint,speaker)
+    print(len(timesegment),len(groundTruth))
+
+    tf.reset_default_graph()
+    sess=tf.Session()
+    vf=ut.VoiceFeature(sess,'save/SR')
+    f,segment=vf.Extract_timeSegment(wavPath+'/'+mfcc_path[i],timesegment)
+    tf.reset_default_graph()
+
+    k=sklearn.cluster.k_means(f,2)
+
+    print(mfcc_path[i])
+    for i in range(len(timesegment)):
+        print(timesegment[i],' #Label: ',groundTruth[i],' #Predict: ',k[1][i])
+
+    accuracy,result=clusteringAcc(k[1],groundTruth,2)
+    #print(accuracy)
+    acc.append(accuracy)
+    no.append(result)
+
+for i in range(len(acc)):
+    print(no[i])
+    print(acc[i])
+    print()
+    
