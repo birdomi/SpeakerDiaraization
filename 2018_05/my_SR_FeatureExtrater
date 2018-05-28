@@ -11,6 +11,10 @@ BILSTM_CNN_SR클래스는 화자인식기 모델을 구현.
     4.얻어진 히든레이어 값 리스트를 평균낸다.
     5.평균을 하여 얻어진 2048개의 값을 특징으로 사용한다.
     
+ 
+BILSTM모델은 2개의 BILSTM+ 4개의 CNN레이어로 이루어져 있으며, 출력에 걸리는 시간이 길어 간소화가 필요함.
+
+small BILSTM모델은 1개의 BILSTM+2개의 CNN레이어로 이루어져 있다.
     
 
 """
@@ -80,6 +84,80 @@ class BILSTM_CNN_SR():
         self.L3 = tf.layers.conv2d(inputs=self.L2, filters=64, kernel_size=32,padding='same',activation=tf.nn.elu,kernel_initializer=tf.contrib.layers.xavier_initializer())
         self.L4 = tf.layers.conv2d(inputs=self.L3, filters=64, kernel_size=32,padding='same',activation=tf.nn.elu,kernel_initializer=tf.contrib.layers.xavier_initializer())
         self.L4 = tf.layers.max_pooling2d(self.L4,2,2)             
+        
+        self.Conv1_Out=tf.layers.flatten(self.L4)
+        
+        self.FC=tf.layers.dense(self.Conv1_Out,FC1,activation=tf.nn.relu)
+        self.FC=tf.layers.dropout(self.FC,self.keep_prob)
+        self.FC_out=tf.layers.dense(self.FC,FC_Out)
+
+        self.cost=tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits_v2(logits=self.FC_out,labels=tf.one_hot(self.Y,FC_Out)))
+        self.optimizer=tf.train.AdamOptimizer(learning_rate=self.learning_rate).minimize(self.cost)
+
+        self.output=tf.argmax(self.FC_out,1)
+        self.accuracy=tf.reduce_mean(tf.cast(tf.equal(self.output,self.Y),tf.float32))
+
+    def printConv(self,x,keep_prob=1.0):
+        return self.sess.run([self.L1,self.L2,self.L3,self.L4],feed_dict={self.X:x,self.keep_prob:keep_prob})
+            
+    def Outputs(self,x,keep_prob=1.0):
+        return self.sess.run(self.output,feed_dict={self.X:x,self.keep_prob:keep_prob})
+
+    def Cost(self,x,y,keep_prob=1.0):
+        return self.sess.run(self.cost,feed_dict={self.X:x,self.Y:y,self.keep_prob:keep_prob})
+
+    def Train(self,x,y,keep_prob=0.2):
+        return self.sess.run(self.optimizer,feed_dict={self.X:x,self.Y:y,self.keep_prob:keep_prob})
+
+    def Accuracy(self,x,y,keep_prob=1.0):
+        return self.sess.run(self.accuracy, feed_dict={self.X:x,self.Y:y,self.keep_prob:keep_prob})
+
+    def Feature(self,x,keep_prob=1.0):
+        return self.sess.run(self.FC,feed_dict={self.X:x,self.keep_prob:keep_prob})
+
+    def Save(self,name):
+
+        saver=tf.train.Saver()
+        saver.save(self.sess, name)
+
+    def Restore(self,name):
+        saver=tf.train.Saver()
+        saver.restore(self.sess,name)
+        
+  #######################
+  class smallBILSTM_CNN_SR():
+    def __init__(self,sess,name,learning_rate,speakerNo):
+        self.sess=sess
+        self.name=name
+        self.learning_rate=learning_rate
+        self.speakerNo=speakerNo
+        self._build_net()
+
+    def _build_net(self):
+        LSTM1=64
+        FC1=2048
+        FC_Out=self.speakerNo
+
+        self.X=tf.placeholder(tf.float32,[None,audiocut_max,128,1])
+        self.Y=tf.placeholder(tf.int64,[None,1])
+        
+        self.keep_prob=tf.placeholder(tf.float32)  
+
+        self.X1=tf.reshape(self.X,[-1,audiocut_max,128])
+        self.RNN1_cell=tf.contrib.rnn.LSTMCell(LSTM1)
+
+        self.cell_fw=tf.contrib.rnn.MultiRNNCell([self.RNN1_cell])
+        self.cell_bw=tf.contrib.rnn.MultiRNNCell([self.RNN1_cell])
+
+        self.RNN_output,_=tf.nn.bidirectional_dynamic_rnn(self.cell_fw,self.cell_bw,self.X1,dtype=tf.float32)
+        self.rnn_output=tf.concat(self.RNN_output,2)
+        self.rnn_output=tf.reshape(self.rnn_output,(-1,audiocut_max,LSTM1*2,1))
+        
+        self.L1 = tf.layers.conv2d(inputs=self.X, filters=16, kernel_size=5,padding='valid',activation=tf.nn.elu,kernel_initializer=tf.contrib.layers.xavier_initializer())            
+        self.L2 = tf.layers.max_pooling2d(self.L1,2,2) 
+
+        self.L3 = tf.layers.conv2d(inputs=self.L2, filters=64, kernel_size=32,padding='same',activation=tf.nn.elu,kernel_initializer=tf.contrib.layers.xavier_initializer())
+        self.L4 = tf.layers.max_pooling2d(self.L3,2,2)             
         
         self.Conv1_Out=tf.layers.flatten(self.L4)
         
