@@ -1,0 +1,12 @@
+       private string Convert_Sample_to_Sec(int sample)
+        {
+            double Time = (double)sample / (double)system.wave.wave_reader.WaveFormat.SampleRate;
+            string text = string.Format("{0:F}", Time);
+            return text;
+        }
+        
+            string WorkingDirectory = @"../../DiarizationEXE";
+            string boundary="";
+            for (int i = 0; i < C.startsample.Count; i++)
+                boundary += Convert_Sample_to_Sec(C.startsample[i])+ " " + Convert_Sample_to_Sec(C.endsample[i])+"\n";
+            System.IO.File.WriteAllText(WorkingDirectory + "\\boundary.bdr", boundary);
