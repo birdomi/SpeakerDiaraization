@@ -6,7 +6,7 @@ import ut
 import sklearn.cluster
 
 
-
+sess=tf.Session()
 def Segment_Analysis2(cluster,segment,cut,border,speakerNumber):
     current_position=0
     result=[]
@@ -52,7 +52,6 @@ if getattr(sys, 'frozen', False):
 else:
     application_path = os.path.dirname(os.path.abspath(__file__))
 
-print(application_path)
 if(len(sys.argv)==4):
     waveFile=sys.argv[1]
     index=waveFile.find('.')
@@ -73,10 +72,10 @@ else:
     print('디텍터.exe     입력시킬wav파일  wave안에 들어있는 화자 수   발화구간BDR파일  (옵션)출력시킬bdr파일이름\n')
     sys.exit()
 
+
 ut.progressBar(0,100,50)
 segment=readBDR(segment)
-tf.reset_default_graph()
-sess=tf.Session()
+
 vf=ut.VoiceFeature(sess,str(application_path+'\\sr1166p\\sr').encode('UTF-8'))
 f,segment,cut=vf.Extract_timeSegment(waveFile,segment)
 
