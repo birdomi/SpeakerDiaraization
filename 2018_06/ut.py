@@ -293,10 +293,10 @@ class VoiceFeature():
         percent=1
         progressBar(percent,percentLength,50)
         for s in timeSegment:
-            specSegment=spec[int(s[0]*100):int(s[1]*100)]
+            specSegment=spec[int(s[0]*100):int(s[1]*100)+1]
             specLength=len(specSegment)
             cutCount=int((specLength-25)/25)
-            
+            #print(cutCount,specLength,(specLength-25)/25,s[0],s[1])
             cut_per_segment.append(cutCount)
             
             if(cutCount>0):
