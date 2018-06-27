@@ -53,7 +53,7 @@ if getattr(sys, 'frozen', False):
     application_path = sys._MEIPASS
 else:
     application_path = os.path.dirname(os.path.abspath(__file__))
-"""
+
 if(len(sys.argv)==4):
     waveFile=sys.argv[1]
     index=waveFile.find('.')
@@ -73,11 +73,7 @@ else:
     print('detetor.exe    wavefileDirectory  SpeakerNumber  BoundaryFile (Option)borderfileName\n')
     print('디텍터.exe     입력시킬wav파일  wave안에 들어있는 화자 수   발화구간BDR파일  (옵션)출력시킬bdr파일이름\n')
     sys.exit()
-"""
-waveFile='말레이시아5min.wav'
-speakerNumber=2
-segment='boundary.bdr'
-borderFile='말레이시아out'
+
 
 ut.progressBar(0,100,50)
 segment=readBDR(segment)
