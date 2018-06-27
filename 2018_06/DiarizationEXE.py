@@ -10,15 +10,17 @@ sess=tf.Session()
 def Segment_Analysis2(cluster,segment,cut,border,speakerNumber):
     current_position=0
     result=[]
-    #print(len(cluster),len(segment),len(cut))
+    #print(len(cluster),len(segment),len(cut),sum(cut))
     for i in range(len(cut)):        
         start=segment[i][0]
         end=segment[i][1]        
         
-        if(cut[i]>1):
+        #print(cut[i],current_position)
+        
+        if(cut[i]>0):
             s={}
-            for i in range(speakerNumber):
-                s[i]=0
+            for k in range(speakerNumber):
+                s[k]=0
             for j in range(cut[i]):
                 s[cluster[current_position]]+=1
                 current_position+=1
@@ -41,7 +43,7 @@ def readBDR(bdr):
     s=[]
     for line in lines:
         d=line.split(' ')
-        s.append((float(d[0]),float(d[1][:-2])))
+        s.append((float(d[0]),float(d[1])))
     return s
 
 if getattr(sys, 'frozen', False):
@@ -51,7 +53,7 @@ if getattr(sys, 'frozen', False):
     application_path = sys._MEIPASS
 else:
     application_path = os.path.dirname(os.path.abspath(__file__))
-
+"""
 if(len(sys.argv)==4):
     waveFile=sys.argv[1]
     index=waveFile.find('.')
@@ -71,7 +73,11 @@ else:
     print('detetor.exe    wavefileDirectory  SpeakerNumber  BoundaryFile (Option)borderfileName\n')
     print('디텍터.exe     입력시킬wav파일  wave안에 들어있는 화자 수   발화구간BDR파일  (옵션)출력시킬bdr파일이름\n')
     sys.exit()
-
+"""
+waveFile='말레이시아5min.wav'
+speakerNumber=2
+segment='boundary.bdr'
+borderFile='말레이시아out'
 
 ut.progressBar(0,100,50)
 segment=readBDR(segment)
